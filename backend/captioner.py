@@ -6,6 +6,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+import ffmpeg_util
+
 CAPTION_STYLES: Dict[str, Dict[str, Any]] = {
   "classic_white": {
     "name": "Classic White",
@@ -426,9 +428,7 @@ async def _burn_ass_to_video(input_path: str, ass_path: str, output_path: str) -
     # to avoid escaping issues. Or we can use relative paths if we set cwd.
     # Let's fix the path for ffmpeg filter: replace \ with / and escape : as \:
     safe_ass_path = ass_path.replace("\\", "/").replace(":", "\\:")
-    ffmpeg_path = os.path.expandvars(
-        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin\ffmpeg.exe"
-    )
+    ffmpeg_path = ffmpeg_util.get_ffmpeg()
     cmd = [
         ffmpeg_path, "-i", input_path,
         "-vf", f"ass='{safe_ass_path}'",

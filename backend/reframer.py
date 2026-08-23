@@ -13,12 +13,11 @@ if 'cv2' not in sys.modules:
     _cv2_stub = types.ModuleType('cv2')
     sys.modules['cv2'] = _cv2_stub
 
-import mediapipe as mp # type: ignore
-from mediapipe.tasks import python # type: ignore
-from mediapipe.tasks.python import vision # type: ignore
 import io
 from typing import Optional, Any
 import logging
+
+import ffmpeg_util
 
 logger = logging.getLogger(__name__)
 
@@ -30,25 +29,43 @@ def _ensure_model_exists():
     url = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
     urllib.request.urlretrieve(url, model_path)
 
-_ensure_model_exists()
-base_options = python.BaseOptions(model_asset_path=model_path)
-options = vision.FaceDetectorOptions(base_options=base_options)
-face_detector = vision.FaceDetector.create_from_options(options)
+# DKC 57: lazy MediaPipe initialisation — importing this module no longer
+# requires mediapipe (keeps tests and lightweight deployments importable).
+_face_detector = None
+
+def _get_face_detector():
+    global _face_detector
+    if _face_detector is None:
+        import mediapipe as mp # type: ignore
+        from mediapipe.tasks import python # type: ignore
+        from mediapipe.tasks.python import vision # type: ignore
+        _ensure_model_exists()
+        base_options = python.BaseOptions(model_asset_path=model_path)
+        options = vision.FaceDetectorOptions(base_options=base_options)
+        _face_detector = vision.FaceDetector.create_from_options(options)
+    return _face_detector
 
 async def process_clip(
   video_path: str,
   suggestion: dict[str, Any],
   output_dir: str,
   project_id: str,
-  forced_layout_mode: Optional[str] = None
+  forced_layout_mode: Optional[str] = None,
+  face_tracking: bool = True,
+  reframe: bool = True,
 ) -> dict[str, Any]:
   """
   Full pipeline for one clip:
   1. Cut raw clip at suggestion timestamps
-  2. Sample frames using FFmpeg
-  3. Detect faces in sampled frames (with deduplication)
+  2. (if face tracking) sample frames using FFmpeg
+  3. (if face tracking) detect faces in sampled frames (with deduplication)
   4. Generate keyframes & apply dynamic face-reactive zoom using sendcmd
+     (or a static crop when face tracking / reframing is disabled)
   5. Return clip metadata
+
+  DKC 57 additions:
+      face_tracking — skip MediaPipe detection when False (static crop)
+      reframe       — skip 9:16 reframe entirely when False
   """
 
   raw_clip = os.path.join(
@@ -62,14 +79,37 @@ async def process_clip(
 
   width, height = _get_video_dimensions(raw_clip)
   duration = suggestion['end'] - suggestion['start']
-  
-  frames = _extract_sample_frames(raw_clip)
-  face_data = _detect_faces_all_frames(frames, width, height)
 
   output_clip = os.path.join(
     output_dir,
     f"clip_{project_id}_{suggestion['start']}.mp4"
   )
+
+  if not reframe:
+      # DKC 57: no reframe — keep the original framing (just a clean cut)
+      await _static_center_crop(raw_clip, output_clip, width, height, keep_aspect=False)
+      if os.path.exists(raw_clip):
+          os.remove(raw_clip)
+      return {
+          "file_path": output_clip,
+          "start_time": suggestion['start'],
+          "end_time": suggestion['end'],
+          "duration": duration,
+          "title": suggestion.get('title', ''),
+          "reason": suggestion.get('reason', ''),
+          "viral_score": suggestion.get('viral_score', 0),
+          "face_count": 0,
+          "layout_mode": "original",
+          "needs_user_confirm": False,
+          "reframed": False
+      }
+
+  if face_tracking:
+      frames = _extract_sample_frames(raw_clip)
+      face_data = _detect_faces_all_frames(frames, width, height)
+  else:
+      # DKC 57: face tracking disabled — static centered crop
+      face_data = []
 
   success, face_count = await _reframe_dynamic_zoom(raw_clip, output_clip, width, height, face_data, duration)
   if not success:
@@ -87,10 +127,47 @@ async def process_clip(
     "reason": suggestion.get('reason', ''),
     "viral_score": suggestion.get('viral_score', 0),
     "face_count": face_count,
-    "layout_mode": "dynamic_zoom",
+    "layout_mode": "dynamic_zoom" if face_tracking else "static_center",
     "needs_user_confirm": False,
     "reframed": True
   }
+
+
+async def _static_center_crop(
+  input_path: str,
+  output_path: str,
+  vid_width: int,
+  vid_height: int,
+  keep_aspect: bool = True,
+) -> None:
+  """
+  DKC 57: plain 9:16 center crop + scale to 1080x1920 (no face detection).
+  Used when reframing is requested but face tracking is disabled, and as a
+  last-resort fallback.
+  """
+  crop_h = vid_height
+  crop_w = crop_h * 9.0 / 16.0
+  if crop_w > vid_width:
+      crop_w = vid_width
+      crop_h = crop_w * 16.0 / 9.0
+  crop_x = (vid_width - crop_w) / 2.0
+  crop_y = (vid_height - crop_h) / 2.0
+  filter_cx = (
+      f"crop={int(crop_w)}:{int(crop_h)}:{int(crop_x)}:{int(crop_y)},"
+      f"scale=1080:1920:force_original_aspect_ratio=decrease,"
+      f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
+  )
+  ffmpeg_path = ffmpeg_util.get_ffmpeg()
+  cmd = [
+      ffmpeg_path, "-i", input_path,
+      "-vf", filter_cx,
+      "-c:a", "copy", output_path, "-y"
+  ]
+  result = subprocess.run(cmd, capture_output=True)
+  if result.returncode != 0:
+      raise RuntimeError(
+          f"FFmpeg static center crop failed: {result.stderr.decode()}"
+      )
 
 
 def _extract_sample_frames(video_path: str) -> list[Image.Image]:
@@ -98,9 +175,7 @@ def _extract_sample_frames(video_path: str) -> list[Image.Image]:
   Extract 1 frame per second as raw bytes using FFmpeg.
   No temp files — pipe directly to memory.
   """
-  ffmpeg_path = os.path.expandvars(
-      r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin\ffmpeg.exe"
-  )
+  ffmpeg_path = ffmpeg_util.get_ffmpeg()
   result = subprocess.run([
     ffmpeg_path, "-i", video_path,
     "-vf", "fps=1",
@@ -140,12 +215,14 @@ def _detect_faces_all_frames(
   Applies deduplication tracking rules.
   """
   import numpy as np # type: ignore
+  import mediapipe as mp # type: ignore
 
+  detector = _get_face_detector()
   all_faces = []
   for frame in frames:
     rgb = np.array(frame.convert('RGB'))
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    results = face_detector.detect(mp_image)
+    results = detector.detect(mp_image)
     faces = []
     if results.detections:
       for det in results.detections:
@@ -359,9 +436,7 @@ async def _reframe_dynamic_zoom(
       f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
     )
 
-    ffmpeg_path = os.path.expandvars(
-        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin\ffmpeg.exe"
-    )
+    ffmpeg_path = ffmpeg_util.get_ffmpeg()
     cmd = [
       ffmpeg_path,
       "-i", input_path,
@@ -416,9 +491,7 @@ async def _reframe_static_fallback(
       f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
   )
 
-  ffmpeg_path = os.path.expandvars(
-      r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin\ffmpeg.exe"
-  )
+  ffmpeg_path = ffmpeg_util.get_ffmpeg()
   cmd = [
     ffmpeg_path, "-i", input_path,
     "-vf", filter_cx,
@@ -435,9 +508,7 @@ def _get_video_dimensions(video_path: str) -> tuple[int, int]:
   """
   Use ffprobe to get width and height.
   """
-  ffprobe_path = os.path.expandvars(
-      r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin\ffprobe.exe"
-  )
+  ffprobe_path = ffmpeg_util.get_ffprobe()
   cmd = [
       ffprobe_path, 
       "-v", "error", "-select_streams", "v:0", 
@@ -460,9 +531,7 @@ async def _cut_raw_clip(
   ffmpeg -ss {start} -i {video_path} ...
   """
   duration = end - start
-  ffmpeg_path = os.path.expandvars(
-      r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build\bin\ffmpeg.exe"
-  )
+  ffmpeg_path = ffmpeg_util.get_ffmpeg()
   cmd = [
       ffmpeg_path, "-y", "-ss", str(start), "-i", video_path,
       "-t", str(duration), "-c", "copy", output_path

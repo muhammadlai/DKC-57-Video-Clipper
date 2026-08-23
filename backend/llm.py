@@ -29,7 +29,10 @@ async def get_clip_suggestions(
     api_key: str,
     model: str,
     video_duration: float,
-    progress_callback: Optional[Callable[[str, float, str], None]] = None
+    progress_callback: Optional[Callable[[str, float, str], None]] = None,
+    num_clips: int = 5,
+    min_duration: float = 30.0,
+    max_duration: float = 90.0,
 ) -> list[dict]:
     """
     Map-Reduce approach to stay under TPM limits.
@@ -62,7 +65,10 @@ async def get_clip_suggestions(
             55 + (i / len(chunks) * 15),
             f"Analyzing part {i+1} of {len(chunks)}..."
         )
-        candidates = await _analyze_chunk(chunk, i, len(chunks), provider, api_key, model)
+        candidates = await _analyze_chunk(
+            chunk, i, len(chunks), provider, api_key, model,
+            num_clips=num_clips, min_duration=min_duration, max_duration=max_duration,
+        )
         all_candidates.extend(candidates)
 
         # Add delay between chunks to avoid rate limits (skip delay on last chunk)
@@ -76,17 +82,26 @@ async def get_clip_suggestions(
 
     # Step 3 — If only 1 chunk, candidates are already final
     if len(chunks) == 1:
-        return _validate_suggestions(all_candidates, video_duration)
+        return _validate_suggestions(
+            all_candidates, video_duration,
+            num_clips=num_clips, min_duration=min_duration, max_duration=max_duration,
+        )
 
     # Step 4 — Rank all candidates (REDUCE)
     # Add delay before reduce step to avoid hitting rate limits
     await asyncio.sleep(random.uniform(3.0, 5.0))
 
     progress("analyzing", 72, "Ranking best moments...")
-    final_clips = await _rank_candidates(all_candidates, video_duration, provider, api_key, model)
+    final_clips = await _rank_candidates(
+        all_candidates, video_duration, provider, api_key, model,
+        num_clips=num_clips, min_duration=min_duration, max_duration=max_duration,
+    )
     progress("analyzing", 75, f"Found {len(final_clips)} clips")
 
-    return _validate_suggestions(final_clips, video_duration)
+    return _validate_suggestions(
+        final_clips, video_duration,
+        num_clips=num_clips, min_duration=min_duration, max_duration=max_duration,
+    )
 
 
 def _chunk_transcript(
@@ -120,12 +135,18 @@ async def _analyze_chunk(
     total_chunks: int,
     provider: str,
     api_key: str,
-    model: str
+    model: str,
+    num_clips: int = 5,
+    min_duration: float = 30.0,
+    max_duration: float = 90.0,
 ) -> list[dict]:
     """
     Send ONE chunk to LLM. Stay under 1500 tokens.
     """
-    prompt = _build_chunk_prompt(chunk, chunk_index, total_chunks)
+    prompt = _build_chunk_prompt(
+        chunk, chunk_index, total_chunks,
+        num_clips=num_clips, min_duration=min_duration, max_duration=max_duration,
+    )
     raw = await _call_provider_with_retry(provider, api_key, model, prompt)
     logger.info(f"LLM raw response for chunk {chunk_index+1}: {raw[:500]}")
     parsed = _parse_llm_json(raw)
@@ -138,13 +159,19 @@ async def _rank_candidates(
     video_duration: float, # passed for consistency but might not be used here
     provider: str,
     api_key: str,
-    model: str
+    model: str,
+    num_clips: int = 5,
+    min_duration: float = 30.0,
+    max_duration: float = 90.0,
 ) -> list[dict]:
     """
     Final reduce step. Send ALL candidates to LLM
-    and ask it to pick the best 5-10.
+    and ask it to pick the best ``num_clips``.
     """
-    prompt = _build_reduce_prompt(candidates)
+    prompt = _build_reduce_prompt(
+        candidates, num_clips=num_clips,
+        min_duration=min_duration, max_duration=max_duration,
+    )
     raw = await _call_provider_with_retry(provider, api_key, model, prompt)
     return _parse_llm_json(raw)
 
@@ -182,11 +209,18 @@ def _format_candidates(candidates: list[dict]) -> str:
 
 def _validate_suggestions(
     suggestions: list[dict],
-    video_duration: float
+    video_duration: float,
+    num_clips: int = 5,
+    min_duration: float = 30.0,
+    max_duration: float = 90.0,
 ) -> list[dict]:
     """
-    Final validation pass on all suggestions.
-    Tries strict 60-80s first; if nothing survives, falls back to lenient (15s+).
+    Final validation pass on all suggestions (DKC 57: parameterised bounds).
+
+    First tries the configured [min_duration, max_duration] window; if
+    nothing survives, falls back to a lenient window (half of
+    ``min_duration``, capped at 15s minimum) so a usable set of clips is
+    returned whenever possible.
     """
     logger.info(f"RAW LLM SUGGESTIONS RECEIVED FOR VALIDATION ({len(suggestions)} clips): {suggestions}")
 
@@ -194,21 +228,39 @@ def _validate_suggestions(
         logger.warning("No suggestions received from LLM at all")
         return []
 
-    # --- First pass: strict 60-80s ---
-    strict = _filter_suggestions(suggestions, video_duration, min_dur=45, target_min=60, target_max=80)
+    min_duration = max(5.0, float(min_duration))
+    max_duration = max(min_duration, float(max_duration))
+
+    # --- First pass: configured bounds ---
+    strict = _filter_suggestions(
+        suggestions, video_duration,
+        min_dur=min_duration,
+        target_min=min(min_duration + (max_duration - min_duration) * 0.5, max_duration - 1),
+        target_max=max_duration,
+    )
 
     if strict:
         logger.info(f"Strict validation kept {len(strict)} clips")
         return strict
 
-    # --- Fallback: lenient, accept anything 15s+ and extend short ones to 60s ---
-    logger.warning("Strict 60-80s validation returned 0 clips — falling back to lenient mode")
-    lenient = _filter_suggestions(suggestions, video_duration, min_dur=15, target_min=60, target_max=90)
+    # --- Fallback: lenient — accept anything >= half the minimum ---
+    logger.warning("Configured-duration validation returned 0 clips — falling back to lenient mode")
+    lenient = _filter_suggestions(
+        suggestions, video_duration,
+        min_dur=max(10.0, min_duration / 2),
+        target_min=min(min_duration, max_duration - 1),
+        target_max=max_duration,
+    )
 
     if lenient:
         logger.info(f"Lenient validation kept {len(lenient)} clips")
     else:
         logger.warning("No valid clips survived even lenient validation")
+
+    # Keep only the top ``num_clips`` (highest viral score first) if too many survived
+    if len(lenient) > num_clips:
+        lenient = sorted(lenient, key=lambda c: c.get('viral_score', 0), reverse=True)[:num_clips]
+        lenient.sort(key=lambda x: x['start'])
 
     return lenient
 
@@ -270,23 +322,33 @@ def _filter_suggestions(
     return non_overlapping
 
 
-def _build_chunk_prompt(chunk: list[dict], chunk_index: int, total_chunks: int) -> str:
+def _build_chunk_prompt(
+    chunk: list[dict],
+    chunk_index: int,
+    total_chunks: int,
+    num_clips: int = 5,
+    min_duration: float = 30.0,
+    max_duration: float = 90.0,
+) -> str:
     # Get the time bounds of this chunk
     chunk_start = chunk[0]["start"] if chunk else 0
     chunk_end = chunk[-1]["end"] if chunk else 0
 
+    # Scale per-chunk candidate count with the final target so the reduce
+    # step always has enough options.
+    per_chunk = max(2, round(num_clips / max(1, total_chunks)) + 1)
+
     return f"""You are a viral video editor.
-This is part {chunk_index+1} of {total_chunks} of a YouTube video transcript.
+This is part {chunk_index+1} of {total_chunks} of a video transcript.
 This section covers timestamps from {chunk_start:.0f}s to {chunk_end:.0f}s.
 
-Find the 3-5 BEST moments in this section suitable for viral short clips.
+Find the {per_chunk} BEST moments in this section suitable for short clips.
 
 Rules:
-- Each clip MUST be between 60 and 80 seconds long. This is STRICT — no shorter, no longer.
+- Each clip MUST be between {min_duration:.0f} and {max_duration:.0f} seconds long. This is STRICT — no shorter, no longer.
 - Clips MUST stay within this section's bounds: {chunk_start:.0f}s to {chunk_end:.0f}s
 - Must start and end at natural speech boundaries
 - Only pick genuinely strong moments
-- You MUST return at least 2-3 clips for this section so we have enough options
 - Make sure "start" and "end" are float numbers of seconds
 - Generate a catchy, clickbait-style title for each clip (max 8 words)
 - Generate 3-5 relevant hashtags for social media (e.g. #motivation #viral)
@@ -310,21 +372,25 @@ Return ONLY JSON array:
 If no strong moments found return: []"""
 
 
-def _build_reduce_prompt(candidates: list[dict]) -> str:
+def _build_reduce_prompt(
+    candidates: list[dict],
+    num_clips: int = 5,
+    min_duration: float = 30.0,
+    max_duration: float = 90.0,
+) -> str:
     return f"""You are a viral video editor.
-Below are candidate clip moments found across a YouTube video.
-Select the best clips for maximum viral potential.
+Below are candidate clip moments found across a video.
+Select the best clips for maximum short-form potential.
 
 CANDIDATES:
 {_format_candidates(candidates)}
 
 Rules:
-- Return between 5 and 10 clips (each STRICTLY between 60 and 80 seconds long)
-- You MUST return AT LEAST 5 clips. This is a strict requirement!
+- Return exactly {num_clips} clips if available (each STRICTLY between {min_duration:.0f} and {max_duration:.0f} seconds long)
 - No overlapping timestamps
 - Sort by start time ascending
 - "start" and "end" must be float numbers of seconds
-- Adjust start/end timestamps if needed to ensure each clip is 60-80 seconds
+- Adjust start/end timestamps if needed to ensure each clip is {min_duration:.0f}-{max_duration:.0f} seconds
 - Keep the existing title, reason, viral_score, hashtags, and tags from candidates
 
 Return ONLY the selected candidates as JSON array in the exact same format. Do not remove any fields.

@@ -87,9 +87,10 @@ def _normalize_transcript_items(items: list[object]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 async def extract_captions(
-    youtube_url: str,
+    youtube_url: Optional[str],
     video_path: str,
     progress_callback: Optional[Callable[[float, str], None]] = None,
+    whisper_model: str = "base",
 ) -> list[dict]:
     """
     Extract a transcript for the given video.
@@ -106,6 +107,16 @@ async def extract_captions(
 
             [{"start": 0.0, "end": 5.2, "text": "Hey welcome back..."}, ...]
     """
+    # DKC 57: local file uploads have no YouTube URL — go straight to
+    # local Whisper transcription.
+    if not youtube_url:
+        _notify(progress_callback, 20, "Transcribing locally with Whisper...")
+        logger.info("Local file — using Whisper transcription (%s)", whisper_model)
+        segments = await _get_whisper_transcript(video_path, whisper_model)
+        if segments:
+            _notify(progress_callback, 100, "Whisper transcription complete")
+        return segments
+
     _notify(progress_callback, 5, "Checking user-provided captions...")
     logger.info("Trying transcript API manual captions...")
     result = await _get_transcript_api_captions(youtube_url, generated=False)
@@ -138,7 +149,7 @@ async def extract_captions(
 
     _notify(progress_callback, 92, "No YouTube captions found. Running Whisper...")
     logger.info("Falling back to Whisper transcription...")
-    segments = await _get_whisper_transcript(video_path)
+    segments = await _get_whisper_transcript(video_path, whisper_model)
     if segments:
         _notify(progress_callback, 100, "Whisper transcription complete")
     return segments
@@ -379,6 +390,7 @@ def _parse_json3(json_path: str) -> list[dict]:
 
 async def _get_whisper_transcript(
     video_path: str,
+    model_name: str = "base",
 ) -> list[dict]:
     """
     Transcribe a video locally using OpenAI's open-source Whisper model.
@@ -390,7 +402,7 @@ async def _get_whisper_transcript(
             logger.error("openai-whisper is not installed — cannot transcribe")
             return []
             
-        model = whisper.load_model("base")
+        model = whisper.load_model(model_name)
         result = model.transcribe(video_path)
 
         segments: list[dict] = []
