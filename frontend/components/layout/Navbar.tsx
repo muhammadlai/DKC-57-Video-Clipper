@@ -47,6 +47,9 @@ export function Navbar() {
                         <Link href="/create" className={`text-sm font-medium transition-colors ${pathname.startsWith("/create") ? "text-white" : "text-slate-400 hover:text-white"}`}>
                             Create Shorts
                         </Link>
+                        <Link href="/library" className={`text-sm font-medium transition-colors ${pathname.startsWith("/library") ? "text-white" : "text-slate-400 hover:text-white"}`}>
+                            Library
+                        </Link>
                         <Link href="/settings" className={`text-sm font-medium transition-colors ${pathname.startsWith("/settings") ? "text-white" : "text-slate-400 hover:text-white"}`}>
                             Settings
                         </Link>
