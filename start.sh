@@ -1,5 +1,5 @@
 #!/bin/bash
-# start.sh — Start both OpenClip servers
+# start.sh — Start both DKC 57 Video Clipper servers
 
 # Colors for output
 RED='\033[0;31m'
@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 
 echo ""
 echo "=========================================="
-echo "          Starting OpenClip"
+echo "      Starting DKC 57 Video Clipper"
 echo "=========================================="
 echo ""
 

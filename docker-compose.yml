@@ -1,0 +1,59 @@
+# DKC 57 Video Clipper — self-hosted stack (original DKC 57 file)
+#
+#   docker compose up -d --build
+#
+#   Frontend:  http://localhost:5000
+#   Backend:   http://localhost:8000  (API docs at /docs)
+#
+# All persistent data (SQLite DB + video/clip storage) is kept in ./data.
+# Copy .env.example to .env and adjust before first run if you want to
+# set an API key or raise the upload limit.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: dkc57/backend:latest
+    ports:
+      - "8000:8000"
+    environment:
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5000}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10240}
+      D57_API_KEY: ${D57_API_KEY:-}
+      # Ollama (if you enable the optional service below)
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Keep http://localhost:8000 for single-machine self-hosting —
+        # the browser (not the container) talks to the backend.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_KEY: ${D57_API_KEY:-}
+    image: dkc57/frontend:latest
+    ports:
+      - "5000:5000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Optional: local AI (Ollama) — enables keyless, fully local moment
+  # detection from the Settings page (provider = Ollama).
+  # Start with:  docker compose --profile ollama up -d ollama
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+volumes:
+  ollama-data:

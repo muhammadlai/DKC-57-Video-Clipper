@@ -1,0 +1,29 @@
+# DKC 57 Video Clipper — frontend image (original DKC 57 file)
+#
+# Multi-stage: build the Next.js app, then run a slim production server.
+FROM node:22-alpine AS build
+WORKDIR /app
+
+# NOTE: NEXT_PUBLIC_* values are inlined at BUILD time.
+# The default points the browser at http://localhost:8000, which is the
+# correct address for a self-hosted single-machine deployment.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_API_KEY=
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_API_KEY=$NEXT_PUBLIC_API_KEY
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ .
+RUN npm run build
+
+# ---- runtime ----
+FROM node:22-alpine
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY --from=build /app ./
+
+EXPOSE 5000
+CMD ["npm", "run", "start"]

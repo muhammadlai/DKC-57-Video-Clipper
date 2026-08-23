@@ -1,11 +1,11 @@
 #!/bin/bash
-# setup.sh — OpenClip Setup Script
+# setup.sh — DKC 57 Video Clipper Setup Script
 # Checks dependencies and installs requirements
 
 set -e
 
 echo "=========================================="
-echo "       OpenClip Setup Script"
+echo "    DKC 57 Video Clipper Setup Script"
 echo "=========================================="
 echo ""
 

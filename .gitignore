@@ -57,3 +57,9 @@ attached_assets/
 err.json
 err2.json
 error_trace.txt
+frontend/eslint-errors.txt
+frontend/ts-error.txt
+frontend/typescript-errors.txt
+backend/error_trace.txt
+backend/ytdlp_error.txt
+.DKC57-bundle

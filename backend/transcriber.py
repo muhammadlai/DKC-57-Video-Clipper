@@ -19,18 +19,39 @@ from urllib.parse import parse_qs, urlparse
 logger = logging.getLogger(__name__)
 
 
-def _resolve_ytdlp_exe() -> str:
-    """Resolve yt-dlp from local virtualenv first, then PATH."""
+def _resolve_ytdlp_argv() -> list:
+    """
+    DKC 57: resolve yt-dlp as a portable command (argv list).
+
+    Resolution order:
+        1. ``YTDLP_PATH`` environment variable
+        2. venv yt-dlp next to this codebase (Windows + POSIX layouts)
+        3. ``yt-dlp`` on the system PATH
+        4. ``python -m yt_dlp`` with the current interpreter (pip package)
+    """
+    env = os.environ.get("YTDLP_PATH", "").strip()
+    if env and os.path.exists(env):
+        return [env]
+
     backend_dir = os.path.dirname(__file__)
-    candidates = [
-        os.path.join(backend_dir, ".venv", "Scripts", "yt-dlp.exe"),
-        os.path.join(backend_dir, "..", ".venv", "Scripts", "yt-dlp.exe"),
-    ]
-    for candidate in candidates:
-        resolved = os.path.abspath(candidate)
-        if os.path.isfile(resolved):
-            return resolved
-    return "yt-dlp"
+    for base in (backend_dir, os.path.join(backend_dir, "..")):
+        for sub in (os.path.join(".venv", "Scripts"), os.path.join(".venv", "bin")):
+            candidate = os.path.abspath(os.path.join(base, sub, "yt-dlp"))
+            if os.path.isfile(candidate):
+                return [candidate]
+
+    import shutil
+    system = shutil.which("yt-dlp")
+    if system:
+        return [system]
+
+    import sys
+    try:
+        import yt_dlp  # noqa: F401
+        return [sys.executable, "-m", "yt_dlp"]
+    except ImportError:
+        pass
+    return ["yt-dlp"]
 
 
 def _notify(
@@ -214,7 +235,7 @@ async def _get_manual_captions(youtube_url: str) -> list[dict]:
     output_template = os.path.join(work_dir, "%(id)s")
 
     cmd = [
-        _resolve_ytdlp_exe(),
+        *_resolve_ytdlp_argv(),
         "--no-playlist",
         "--ignore-config",
         "--no-warnings",
@@ -265,7 +286,7 @@ async def _get_auto_captions(youtube_url: str) -> list[dict]:
     output_template = os.path.join(work_dir, "%(id)s")
 
     cmd = [
-        _resolve_ytdlp_exe(),
+        *_resolve_ytdlp_argv(),
         "--no-playlist",
         "--ignore-config",
         "--no-warnings",

@@ -1,0 +1,37 @@
+# DKC 57 Video Clipper — backend image (original DKC 57 file)
+#
+# Python 3.12 + system FFmpeg + all pipeline dependencies.
+# Note: openai-whisper pulls in PyTorch, so the built image is large
+# (~4-5 GB). This is the cost of fully local transcription.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# FFmpeg (cutting / reframing / captions / watermark) + fonts for drawtext
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY backend/requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY backend/ .
+
+# All user data (SQLite DB + video/clip storage) lives in /data
+ENV TMP_DIR=/data/tmp \
+    DB_PATH=/data/openclip.db \
+    CORS_ORIGIN=http://localhost:5000
+
+RUN mkdir -p /data/tmp
+VOLUME ["/data"]
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+    CMD curl -fsS http://localhost:8000/api/health || exit 1
+
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
