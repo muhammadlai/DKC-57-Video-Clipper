@@ -64,6 +64,7 @@ def build_filter_complex(
     position: str,
     opacity: float,
     logo_width: int = DEFAULT_LOGO_WIDTH,
+    margin: int = DEFAULT_MARGIN,
 ) -> str:
     """
     Build the FFmpeg ``-filter_complex`` string that overlays the watermark.
@@ -75,11 +76,11 @@ def build_filter_complex(
         raise ValueError(f"Invalid watermark position: {position}")
 
     opacity = max(0.0, min(1.0, float(opacity)))
-    m = "margin"
+    m = max(0, int(margin))
     x, y = {
-        "top_left": (m, m),
-        "top_right": (f"main_w-overlay_w-{m}", m),
-        "bottom_left": (m, f"main_h-overlay_h-{m}"),
+        "top_left": (str(m), str(m)),
+        "top_right": (f"main_w-overlay_w-{m}", str(m)),
+        "bottom_left": (str(m), f"main_h-overlay_h-{m}"),
         "bottom_right": (f"main_w-overlay_w-{m}", f"main_h-overlay_h-{m}"),
     }[position]
 
@@ -129,6 +130,7 @@ async def apply_watermark(
     filter_complex = build_filter_complex(
         position=cfg["position"],
         opacity=cfg["opacity"],
+        margin=cfg["margin"],
     )
     ffmpeg = ffmpeg_util.get_ffmpeg()
     cmd = [

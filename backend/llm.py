@@ -241,7 +241,7 @@ def _validate_suggestions(
 
     if strict:
         logger.info(f"Strict validation kept {len(strict)} clips")
-        return strict
+        return _cap_to_num_clips(strict, num_clips)
 
     # --- Fallback: lenient — accept anything >= half the minimum ---
     logger.warning("Configured-duration validation returned 0 clips — falling back to lenient mode")
@@ -257,12 +257,16 @@ def _validate_suggestions(
     else:
         logger.warning("No valid clips survived even lenient validation")
 
-    # Keep only the top ``num_clips`` (highest viral score first) if too many survived
-    if len(lenient) > num_clips:
-        lenient = sorted(lenient, key=lambda c: c.get('viral_score', 0), reverse=True)[:num_clips]
-        lenient.sort(key=lambda x: x['start'])
+    return _cap_to_num_clips(lenient, num_clips)
 
-    return lenient
+
+def _cap_to_num_clips(suggestions: list[dict], num_clips: int) -> list[dict]:
+    """Keep only the top ``num_clips`` (highest viral score first)."""
+    if len(suggestions) <= num_clips:
+        return suggestions
+    kept = sorted(suggestions, key=lambda c: c.get('viral_score') or 0, reverse=True)[:num_clips]
+    kept.sort(key=lambda x: x['start'])
+    return kept
 
 
 def _filter_suggestions(

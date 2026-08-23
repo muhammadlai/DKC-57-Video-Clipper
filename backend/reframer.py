@@ -86,8 +86,8 @@ async def process_clip(
   )
 
   if not reframe:
-      # DKC 57: no reframe — keep the original framing (just a clean cut)
-      await _static_center_crop(raw_clip, output_clip, width, height, keep_aspect=False)
+      # DKC 57: reframe OFF — keep the original framing (clean stream-copy cut)
+      await _copy_clip(raw_clip, output_clip)
       if os.path.exists(raw_clip):
           os.remove(raw_clip)
       return {
@@ -131,6 +131,20 @@ async def process_clip(
     "needs_user_confirm": False,
     "reframed": True
   }
+
+
+async def _copy_clip(input_path: str, output_path: str) -> None:
+  """
+  DKC 57: stream-copy the raw cut to the output (no re-encode, no crop).
+  Used when the user turns Auto Reframe OFF — original framing is kept.
+  """
+  ffmpeg_path = ffmpeg_util.get_ffmpeg()
+  cmd = [ffmpeg_path, "-y", "-i", input_path, "-c", "copy", output_path]
+  result = subprocess.run(cmd, capture_output=True)
+  if result.returncode != 0:
+      raise RuntimeError(
+          f"FFmpeg clip copy failed: {result.stderr.decode()}"
+      )
 
 
 async def _static_center_crop(

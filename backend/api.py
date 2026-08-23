@@ -302,6 +302,7 @@ class ProjectDetailResponse(BaseModel):
     created_at: str
     clips: list[ClipResponse] = []
     source_type: str = "youtube"
+    source_file: Optional[str] = None
     error_message: Optional[str] = None
     config: Optional[dict] = None
 
