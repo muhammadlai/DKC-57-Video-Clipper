@@ -56,6 +56,10 @@ export interface Settings {
     whisper_model: 'base' | 'small' | 'medium';
     has_api_key: boolean;
     caption_style: string;
+    // DKC 57 watermark defaults
+    watermark_enabled?: boolean;
+    watermark_position?: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+    watermark_opacity?: number;
 }
 
 export interface CaptionStyle {

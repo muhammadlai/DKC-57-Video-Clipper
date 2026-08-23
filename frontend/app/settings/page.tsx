@@ -22,6 +22,10 @@ export default function SettingsPage() {
     const [whisperModel, setWhisperModel] = useState<Settings["whisper_model"]>("base");
     const [captionStyle, setCaptionStyle] = useState("none");
     const [captionStylesList, setCaptionStylesList] = useState<CaptionStyle[]>([]);
+    // DKC 57 watermark defaults
+    const [wmEnabled, setWmEnabled] = useState(false);
+    const [wmPosition, setWmPosition] = useState<"top_left" | "top_right" | "bottom_left" | "bottom_right">("bottom_right");
+    const [wmOpacity, setWmOpacity] = useState(0.6);
     const [apiKey, setApiKey] = useState("");
     const [hasApiKey, setHasApiKey] = useState(false);
     const [editingKey, setEditingKey] = useState(false);
@@ -35,6 +39,9 @@ export default function SettingsPage() {
                 setCaptionStyle(data.caption_style || "none");
                 setHasApiKey(data.has_api_key);
                 setCaptionStylesList(styles);
+                setWmEnabled(Boolean(data.watermark_enabled));
+                setWmPosition(data.watermark_position || "bottom_right");
+                setWmOpacity(typeof data.watermark_opacity === "number" ? data.watermark_opacity : 0.6);
             })
             .catch(() => setError("Failed to load settings."))
             .finally(() => setLoading(false));
@@ -58,6 +65,9 @@ export default function SettingsPage() {
                 llm_provider: provider,
                 llm_model: model,
                 whisper_model: whisperModel,
+                watermark_enabled: wmEnabled,
+                watermark_position: wmPosition,
+                watermark_opacity: wmOpacity,
                 caption_style: captionStyle,
             };
             if (editingKey || (!hasApiKey && apiKey)) payload.llm_api_key = apiKey;
@@ -232,6 +242,70 @@ export default function SettingsPage() {
                                     ))
                                 )}
                             </div>
+                        </section>
+
+                        {/* DKC 57 Watermark */}
+                        <section className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-lg font-bold text-slate-100">DKC 57 Watermark</h2>
+                                <button
+                                    type="button"
+                                    onClick={() => setWmEnabled(v => !v)}
+                                    className={`relative h-7 w-12 rounded-full transition-colors ${wmEnabled ? "bg-primary" : "bg-slate-700"}`}
+                                    aria-pressed={wmEnabled}
+                                >
+                                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${wmEnabled ? "left-6" : "left-1"}`} />
+                                </button>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                                Default watermark for new shorts. Off by default and never forced —
+                                can be overridden per project in the Create workflow.
+                            </p>
+                            {wmEnabled && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Position</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {(["top_left", "top_right", "bottom_left", "bottom_right"] as const).map(pos => (
+                                                <button
+                                                    key={pos}
+                                                    type="button"
+                                                    onClick={() => setWmPosition(pos)}
+                                                    className={`rounded-xl border px-3 py-2 text-xs font-bold capitalize transition-all ${
+                                                        wmPosition === pos
+                                                            ? "border-primary bg-primary/15 text-primary"
+                                                            : "border-slate-800 bg-slate-900/30 text-slate-400 hover:border-slate-600"
+                                                    }`}
+                                                >
+                                                    {pos.replace("_", " ")}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                                            Opacity — {Math.round(wmOpacity * 100)}%
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min={0.1}
+                                            max={1}
+                                            step={0.05}
+                                            value={wmOpacity}
+                                            onChange={e => setWmOpacity(parseFloat(e.target.value))}
+                                            className="w-full accent-[#e11d48]"
+                                        />
+                                        <div className="mt-3 rounded-xl bg-slate-900/40 border border-slate-800 p-3">
+                                            <div className={`relative h-20 rounded-lg bg-black overflow-hidden ${wmPosition.includes("top") ? "items-start" : "items-end"} flex px-4 py-3`}>
+                                                <span className="text-[10px] font-bold text-white bg-black/50 border border-red-500/60 rounded px-2 py-1" style={{ opacity: Math.max(0.25, wmOpacity) }}>
+                                                    DKC 57
+                                                </span>
+                                            </div>
+                                            <p className="mt-1 text-[10px] text-slate-600">Preview (approximate)</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </section>
 
                         {error && (

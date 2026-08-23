@@ -1089,6 +1089,10 @@ class UpdateSettingsRequest(BaseModel):
     llm_model: Optional[str] = None
     whisper_model: Optional[str] = None
     caption_style: Optional[str] = None
+    # DKC 57 watermark defaults
+    watermark_enabled: Optional[bool] = None
+    watermark_position: Optional[str] = None
+    watermark_opacity: Optional[float] = None
 
 
 @app.get("/api/settings")
@@ -1111,6 +1115,14 @@ async def update_settings(body: UpdateSettingsRequest):
         "llm_model": body.llm_model,
         "whisper_model": body.whisper_model,
         "caption_style": body.caption_style,
+        "watermark_enabled": (
+            str(int(body.watermark_enabled)).lower()
+            if body.watermark_enabled is not None else None
+        ),
+        "watermark_position": body.watermark_position,
+        "watermark_opacity": (
+            str(body.watermark_opacity) if body.watermark_opacity is not None else None
+        ),
     }
     for key, value in pairs.items():
         if value is not None:
