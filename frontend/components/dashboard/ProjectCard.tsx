@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
 import { Project } from "@/lib/types";
-import { Trash2, Scissors, Clock, AlertCircle, CheckCircle2, Loader2, DownloadCloud } from "lucide-react";
+import { Trash2, Scissors, Clock, AlertCircle, CheckCircle2, Loader2, DownloadCloud, RefreshCw, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ProjectCardProps {
@@ -25,6 +25,8 @@ const statusConfig: Record<Project['status'], StatusConfig> = {
     processing: { label: "Processing", icon: Loader2, className: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" },
     done: { label: "Done", icon: CheckCircle2, className: "bg-[var(--success)]/10 text-[var(--success)] border-[var(--success)]/20" },
     error: { label: "Error", icon: AlertCircle, className: "bg-[var(--error)]/10 text-[var(--error)] border-[var(--error)]/20" },
+    retrying: { label: "Retrying", icon: RefreshCw, className: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+    cancelled: { label: "Cancelled", icon: XCircle, className: "bg-gray-500/10 text-gray-400 border-gray-500/20" },
 };
 
 export function ProjectCard({ project, onDelete }: ProjectCardProps) {

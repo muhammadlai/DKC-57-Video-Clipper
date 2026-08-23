@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import { Navbar } from "@/components/layout/Navbar";
 
@@ -17,7 +18,9 @@ export default function RootLayout({
     <html lang="en" className="dark" suppressHydrationWarning>
       <body>
         <div className="relative flex min-h-screen flex-col bg-black">
-          <Navbar />
+          <Suspense>
+            <Navbar />
+          </Suspense>
           <main className="flex-1">{children}</main>
           <footer className="border-t border-white/5 py-5 text-center text-[11px] text-slate-600">
             DKC 57 Video Clipper — AI-Powered Shorts Generator. Built on{" "}

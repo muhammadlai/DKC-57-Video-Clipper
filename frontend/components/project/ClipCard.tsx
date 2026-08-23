@@ -56,7 +56,7 @@ export function ClipCard({ clip, baseUrl }: ClipCardProps) {
                         {clip.title || `Clip from ${formatDuration(clip.start_time)} to ${formatDuration(clip.end_time)}`}
                     </h3>
 
-                    {clip.viral_score !== undefined && (
+                    {clip.viral_score != null && (
                         <div className={`text-xs font-bold mb-2 flex items-center ${clip.viral_score >= 8 ? "text-green-500" :
                                 clip.viral_score >= 5 ? "text-yellow-500" :
                                     "text-gray-500"

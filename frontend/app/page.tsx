@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -104,6 +104,14 @@ function QueueItem({ project, onDone }: { project: Project; onDone: () => void }
 }
 
 export default function Dashboard() {
+    return (
+        <Suspense>
+            <DashboardInner />
+        </Suspense>
+    );
+}
+
+function DashboardInner() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const searchQuery = (searchParams.get("q") || "").toLowerCase();
