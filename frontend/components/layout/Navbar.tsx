@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
+import { DkcLogo } from "./DkcLogo";
 
 export function Navbar() {
     const pathname = usePathname();
@@ -28,18 +29,25 @@ export function Navbar() {
                 <div className="flex items-center gap-10">
                     <Link href="/" className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-xl overflow-hidden flex-shrink-0">
-                            <img src="/logo.png" alt="OpenClip logo" className="h-full w-full object-contain" />
+                            <DkcLogo size={40} />
                         </div>
-                        <span className="text-xl font-bold tracking-tight text-white">OpenClip</span>
+                        <span className="flex flex-col leading-none">
+                            <span className="text-xl font-bold tracking-tight text-white">
+                                DKC <span className="text-primary">57</span>
+                            </span>
+                            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                                Video Clipper
+                            </span>
+                        </span>
                     </Link>
                     <nav className="hidden md:flex items-center gap-6">
                         <Link href="/" className={`text-sm font-medium transition-colors ${pathname === "/" ? "text-white" : "text-slate-400 hover:text-white"}`}>
-                            Projects
+                            Dashboard
                         </Link>
-                        <Link href="/create" className={`text-sm font-medium transition-colors ${pathname === "/create" ? "text-white" : "text-slate-400 hover:text-white"}`}>
-                            Create
+                        <Link href="/create" className={`text-sm font-medium transition-colors ${pathname.startsWith("/create") ? "text-white" : "text-slate-400 hover:text-white"}`}>
+                            Create Shorts
                         </Link>
-                        <Link href="/settings" className={`text-sm font-medium transition-colors ${pathname === "/settings" ? "text-white" : "text-slate-400 hover:text-white"}`}>
+                        <Link href="/settings" className={`text-sm font-medium transition-colors ${pathname.startsWith("/settings") ? "text-white" : "text-slate-400 hover:text-white"}`}>
                             Settings
                         </Link>
                     </nav>
@@ -57,7 +65,7 @@ export function Navbar() {
                         />
                     </div>
                     <Link href="/settings" className="flex h-9 w-9 items-center justify-center rounded-full glass glass-hover text-slate-300 transition-all">
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573 1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c.94-1.543-.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     </Link>
                 </div>
             </div>

@@ -10,9 +10,11 @@ const config: Config = {
     theme: {
         extend: {
             colors: {
-                primary: "#2e1ded",
-                "accent-purple": "#8b5cf6",
-                "bg-dark": "#000000",
+                primary: "#e11d48",
+                "accent-red": "#9f1239",
+                "bg-dark": "#050506",
+                "panel": "#0d0d10",
+                "panel-light": "#15151a",
             },
             fontFamily: {
                 display: ["Space Grotesk", "sans-serif"],

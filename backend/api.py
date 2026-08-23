@@ -76,9 +76,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="OpenClip API",
-    description="Local-first video clipping engine by AIONIX",
-    version="0.1.0",
+    title="DKC 57 Video Clipper API",
+    description=(
+        "DKC 57 Video Clipper — AI-Powered Shorts Generator. "
+        "Local-first video clipping engine. "
+        "Built on OpenClip (MIT) by AIONIX — see NOTICE.md for attribution."
+    ),
+    version="1.0.0",
 )
 
 # Allow the Next.js frontend dev server

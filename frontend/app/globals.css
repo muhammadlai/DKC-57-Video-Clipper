@@ -6,15 +6,15 @@
 
 @layer base {
   :root {
-    --primary: #2e1ded;
-    --accent-purple: #8b5cf6;
-    --background: #000000;
+    --primary: #e11d48;
+    --accent-red: #9f1239;
+    --background: #050506;
     --success: #3ecf8e;
-    --error: #f87171;
+    --error: #ef4444;
   }
 
   html {
-    background-color: #000000;
+    background-color: #050506;
   }
 
   body {
@@ -44,18 +44,18 @@
   }
 
   .glass-card {
-    background: rgba(46, 29, 237, 0.05);
+    background: rgba(225, 29, 72, 0.05);
     backdrop-filter: blur(12px);
-    border: 1px solid rgba(139, 92, 246, 0.12);
+    border: 1px solid rgba(225, 29, 72, 0.16);
   }
 
   .glow-primary {
-    box-shadow: 0 0 30px rgba(46, 29, 237, 0.4);
+    box-shadow: 0 0 30px rgba(225, 29, 72, 0.35);
   }
 
   .text-gradient {
     @apply text-transparent bg-clip-text;
-    background-image: linear-gradient(to right, #2e1ded, #8b5cf6);
+    background-image: linear-gradient(to right, #e11d48, #9f1239);
   }
 
   .custom-scrollbar::-webkit-scrollbar {
@@ -65,7 +65,7 @@
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #2e1ded;
+    background: #e11d48;
     border-radius: 10px;
   }
 }

@@ -107,10 +107,10 @@ export default function CreateProjectPage() {
             {!isLive && generatedClips.length === 0 && (
                 <div className="mb-10 text-center">
                     <span className="mb-4 inline-block rounded-full bg-primary/20 border border-primary/30 px-4 py-1 text-xs font-bold uppercase tracking-widest text-primary">
-                        New Project
+                        New Shorts
                     </span>
                     <h1 className="text-4xl font-bold text-white mb-3">
-                        Create from <span className="text-gradient">YouTube</span>
+                        Create <span className="text-gradient">Shorts</span>
                     </h1>
                     <p className="text-slate-400 text-base max-w-lg mx-auto">
                         Paste any YouTube URL. The AI pipeline will download, transcribe, analyze and cut your clips automatically.
@@ -185,7 +185,7 @@ export default function CreateProjectPage() {
                         type="submit"
                         className="w-full rounded-xl bg-primary py-4 text-sm font-bold text-white glow-primary hover:bg-primary/90 transition-all"
                     >
-                        Generate Clips
+                        CREATE SHORTS
                     </button>
                 </form>
             )}
@@ -246,7 +246,7 @@ export default function CreateProjectPage() {
                     {/* Terminal Log */}
                     <div>
                         <h3 className="text-white text-base font-bold mb-3 px-1">Pipeline Output</h3>
-                        <div className="bg-[#0a0a0a] border border-accent-purple/30 rounded-xl p-5 font-mono text-sm leading-relaxed overflow-hidden shadow-2xl">
+                        <div className="bg-[#0a0a0a] border border-accent-red/30 rounded-xl p-5 font-mono text-sm leading-relaxed overflow-hidden shadow-2xl">
                             <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
                                 <div className="flex gap-1.5">
                                     <div className="w-3 h-3 rounded-full bg-red-500/50" />
@@ -269,7 +269,7 @@ export default function CreateProjectPage() {
                                                 isWarn ? "text-amber-400" :
                                                 isOk ? "text-emerald-400" : "text-slate-400"
                                             }>
-                                                <span className="text-accent-purple/70">[{new Date().toLocaleTimeString()}]</span>{" "}
+                                                <span className="text-accent-red/70">[{new Date().toLocaleTimeString()}]</span>{" "}
                                                 <span className="text-white font-medium">{log.split("]").pop()?.trim() || log}</span>
                                             </p>
                                         );
@@ -278,7 +278,7 @@ export default function CreateProjectPage() {
                                 <div ref={logsEndRef} />
                                 {isProcessing && (
                                     <div className="flex items-center gap-1">
-                                        <span className="text-accent-purple/70">[{new Date().toLocaleTimeString()}]</span>
+                                        <span className="text-accent-red/70">[{new Date().toLocaleTimeString()}]</span>
                                         <span className="text-white animate-pulse">_</span>
                                     </div>
                                 )}
@@ -289,7 +289,7 @@ export default function CreateProjectPage() {
                     {/* Info bar */}
                     <div className="flex items-center justify-between p-5 glass-card rounded-xl border border-primary/20">
                         <div className="flex items-center gap-3">
-                            <svg className="h-5 w-5 text-accent-purple flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <svg className="h-5 w-5 text-accent-red flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                             <p className="text-slate-300 text-sm">You can safely leave this page — we&apos;ll keep processing in the background.</p>
                         </div>
                         {projectId && (
@@ -329,7 +329,7 @@ export default function CreateProjectPage() {
                                             <div className="mt-2 flex items-center gap-2">
                                                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Viral Score:</span>
                                                 <div className="flex-1 h-1 bg-white/10 rounded-full max-w-[120px]">
-                                                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent-purple" style={{ width: `${(clip.viral_score / 10) * 100}%` }} />
+                                                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent-red" style={{ width: `${(clip.viral_score / 10) * 100}%` }} />
                                                 </div>
                                                 <span className="text-[10px] font-bold text-primary">{clip.viral_score}/10</span>
                                             </div>

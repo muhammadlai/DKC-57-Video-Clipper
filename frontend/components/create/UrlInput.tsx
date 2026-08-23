@@ -64,7 +64,7 @@ export function UrlInput({ onSubmit, isLoading }: UrlInputProps) {
                             disabled={!isValid || isLoading}
                             className="h-10 px-4 rounded-sm bg-[var(--accent)] text-black font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--accent)]/90 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-[var(--background)]"
                         >
-                            {isLoading ? "Processing..." : "Generate Clips"}
+                            {isLoading ? "Processing..." : "CREATE SHORTS"}
                         </button>
                     </div>
                 </div>

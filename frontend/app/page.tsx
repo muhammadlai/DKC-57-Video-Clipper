@@ -123,11 +123,11 @@ export default function Dashboard() {
                     {/* Text content */}
                     <div className="flex-1 max-w-xl">
                         <span className="mb-4 inline-block rounded-full bg-primary/20 border border-primary/30 px-4 py-1 text-xs font-bold uppercase tracking-widest text-primary">
-                            AI Powered Editing
+                            AI-Powered Shorts Generator
                         </span>
                         <h1 className="mb-5 text-4xl font-bold leading-[1.1] tracking-tight text-white lg:text-5xl">
-                            Turn any YouTube video into{" "}
-                            <span className="text-gradient">viral clips</span>
+                            Turn any long video into{" "}
+                            <span className="text-gradient">viral shorts</span>
                         </h1>
                         <p className="mb-8 text-base text-slate-300 max-w-lg">
                             Automatically extract highlights, add captions, and resize for TikTok, Reels, and Shorts.
@@ -138,7 +138,7 @@ export default function Dashboard() {
                                 className="flex items-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-white glow-primary hover:bg-primary/90 transition-all flex-shrink-0"
                             >
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-                                Create New Project
+                                CREATE SHORTS
                             </Link>
                             <form onSubmit={handleQuickCreate} className="flex flex-1 min-w-[280px] items-center gap-2 rounded-xl bg-black/50 px-4 py-2.5 border border-white/20 focus-within:border-primary/50 transition-all h-[50px]">
                                 <svg className="h-4 w-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
@@ -165,7 +165,7 @@ export default function Dashboard() {
                     <div className="hidden lg:absolute lg:block right-0 top-0 bottom-0 w-[38%] pointer-events-none overflow-hidden" style={{ position: "absolute" }}>
                         <img
                             src="/hero-character.png"
-                            alt="OpenClip mascot"
+                            alt="DKC 57"
                             className="absolute bottom-0 right-0 w-full h-auto select-none"
                             style={{ maxHeight: "115%", objectFit: "contain", objectPosition: "bottom right" }}
                         />
@@ -237,7 +237,7 @@ export default function Dashboard() {
                                             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                                         />
                                     ) : (
-                                        <div className="h-full w-full bg-gradient-to-br from-primary/20 to-accent-purple/20 flex items-center justify-center">
+                                        <div className="h-full w-full bg-gradient-to-br from-primary/20 to-accent-red/20 flex items-center justify-center">
                                             <svg className="h-10 w-10 text-primary/40" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                                         </div>
                                     )}

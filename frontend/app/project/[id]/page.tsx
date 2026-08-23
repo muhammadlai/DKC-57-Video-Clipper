@@ -177,7 +177,7 @@ export default function ProjectPage() {
                             ) : (
                                 logs.map((log, i) => (
                                     <p key={i} className="text-slate-400">
-                                        <span className="text-accent-purple/60">[LOG]</span> {log}
+                                        <span className="text-accent-red/60">[LOG]</span> {log}
                                     </p>
                                 ))
                             )}
@@ -262,7 +262,7 @@ export default function ProjectPage() {
                                                 <div className="mt-2 flex items-center gap-1.5">
                                                     <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Viral:</span>
                                                     <div className="flex-1 h-1 bg-white/10 rounded-full">
-                                                        <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent-purple" style={{ width: `${viralPct}%` }} />
+                                                        <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent-red" style={{ width: `${viralPct}%` }} />
                                                     </div>
                                                     <span className="text-[9px] font-bold text-primary">{clip.viral_score}/10</span>
                                                 </div>
