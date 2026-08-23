@@ -1,0 +1,53 @@
+DKC 57 VIDEO CLIPPER — QUICK START
+==================================
+AI-Powered Shorts Generator (local-first, built on OpenClip, MIT)
+
+----------------------------------
+WINDOWS (dusra koi cheez nahi chahiye iske alawa):
+----------------------------------
+1. Install karein (sirf pehli baar):
+   - Python 3.10 ya updated:  https://www.python.org/downloads/
+     (install karte waqt "Add python.exe to PATH" tick zaroor karein)
+   - Node.js 20+ (LTS):      https://nodejs.org/
+
+2. Is folder mein  START-WINDOWS.bat  par DOUB-CLICK karein.
+   - Pehli baar 5-15 minute lagte hain (dependencies download hoti hain)
+   - Script puchega: "Install full AI pack? [Y/n]"
+       Y = local video transcription + face tracking (~3 GB, 10-30 min)
+       n = skip (YouTube links full kaam karengi, official captions se)
+   - Script 2 server windows khol ke browser mein app khud khol degi:
+       http://localhost:5000
+
+3. BAND karna ho to: dono "DKC57-Backend" / "DKC57-Frontend" windows band karein.
+
+----------------------------------
+LINUX / MAC:
+----------------------------------
+    bash setup.sh
+    bash start.sh
+App: http://localhost:5000   API: http://localhost:8000/api/health
+
+----------------------------------
+DOCKER (server-style, kisi bhi machine pe):
+----------------------------------
+    docker compose up -d --build
+App: http://localhost:5000   API: http://localhost:8000
+(README.md mein puri documentation hai — Docker, AI setup, troubleshooting)
+
+----------------------------------
+WORKFLOW:
+----------------------------------
+1. Dashboard kholiye  ->  CREATE SHORTS
+2. YouTube link paste karein YA apni video file upload karein
+3. Settings chunein: number of shorts, duration, captions, watermark, reframe
+4. Generate -> progress live dikhega -> clips library mein milenge
+5. Library se: preview / download / delete
+
+----------------------------------
+NOTES:
+----------------------------------
+- Sab kuch LOCAL chalta hai — video kahin cloud nahi jata.
+- AI moment detection ke liye ek AI key chahiye (Settings page, ya Ollama
+  locally — README dekhain). Bina key ke even-spacing clip mode chalta hai.
+- Data save hota hai:  backend/data/ (database)  aur  backend/tmp/ (videos)
+- GitHub: https://github.com/muhammadlai/DKC-57-Video-Clipper

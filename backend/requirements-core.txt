@@ -1,0 +1,22 @@
+# DKC 57 Video Clipper — CORE requirements (fast install, no heavy AI stack)
+# The app works with these for: YouTube links, YouTube captions, 9:16 reframe
+# (static center), caption burn-in, watermark, thumbnails, all API endpoints.
+# For LOCAL transcription of uploaded files + face tracking, also install
+# requirements-ai.txt (openai-whisper + mediapipe; ~3 GB download).
+
+fastapi
+uvicorn[standard]
+yt-dlp
+aiosqlite
+pydantic
+python-multipart
+websockets
+python-dotenv
+httpx
+cryptography
+tenacity
+Pillow
+numpy
+static-ffmpeg
+youtube-transcript-api
+google-genai

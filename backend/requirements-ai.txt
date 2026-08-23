@@ -1,0 +1,9 @@
+# DKC 57 Video Clipper — OPTIONAL heavy AI pack
+# Installs local speech-to-text (OpenAI Whisper) and face tracking (MediaPipe).
+# NOTE: large download (~3 GB with PyTorch CPU). Only needed if you:
+#   - upload video files (local transcription), or
+#   - want face-tracking reframe instead of static center crop.
+# YouTube links + captions work without this pack.
+
+openai-whisper
+mediapipe
