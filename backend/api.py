@@ -33,11 +33,12 @@ Based on OpenClip (MIT) by AIONIX — see NOTICE.md.
 
 import os
 import re
+import json
 import asyncio
 import shutil
 import logging
 import threading
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import (  # type: ignore
     FastAPI,
@@ -48,10 +49,12 @@ from fastapi import (  # type: ignore
     File,
     Form,
     UploadFile,
+    Request,
 )
-from fastapi.responses import FileResponse, JSONResponse  # type: ignore
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse  # type: ignore
 from fastapi.staticfiles import StaticFiles  # type: ignore
 from fastapi.middleware.cors import CORSMiddleware  # type: ignore
+from starlette.middleware.sessions import SessionMiddleware  # type: ignore
 from pydantic import BaseModel, Field  # type: ignore
 from dotenv import load_dotenv  # type: ignore
 
@@ -63,6 +66,8 @@ _extra_paths = os.path.join(os.path.dirname(__file__), "bin")
 os.environ["PATH"] = _extra_paths + ":" + os.environ.get("PATH", "")
 
 # Internal modules
+import admin_security  # type: ignore
+import control_db  # type: ignore
 import database  # type: ignore
 import downloader  # type: ignore
 import clipper  # type: ignore
@@ -73,6 +78,8 @@ import captioner  # type: ignore
 import watermark as watermark_mod  # type: ignore
 import settings as settings_mod  # type: ignore
 import ffmpeg_util  # type: ignore
+import youtube_oauth  # type: ignore
+from command_center import CommandCenterService  # type: ignore
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -88,13 +95,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="DKC 57 Video Clipper API",
+    title="AITZAZ AI API",
     description=(
-        "DKC 57 Video Clipper — AI-Powered Shorts Generator. "
-        "Local-first video clipping engine. "
-        "Built on OpenClip (MIT) by AIONIX — see NOTICE.md for attribution."
+        "AITZAZ AI — Live Content Command Center for YouTube Live + cricket context. "
+        "Includes the legacy clipper pipeline plus live diagnostics, YouTube OAuth, "
+        "STUMPS monitoring, rolling buffer management, and publishing queue APIs."
     ),
-    version="1.0.0",
+    version="2.0.0",
 )
 
 # Allow the Next.js frontend dev server
@@ -111,15 +118,24 @@ if _replit_domain:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_origin_regex=r"https://.*\.replit\.dev",
+    allow_origin_regex=r"https://.*\.(replit\.dev|e2b\.app)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET", "dev-session-secret-change-me"),
+    same_site="lax",
+    https_only=False,
+)
+
 # Base directory for all temporary video / clip files
 TMP_DIR = os.getenv("TMP_DIR", os.path.join(os.path.dirname(__file__), "..", "tmp"))
 os.makedirs(TMP_DIR, exist_ok=True)
+
+command_center = CommandCenterService(TMP_DIR)
 
 # DKC 57: max upload size (MB) — generous local default, configurable
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10240"))
@@ -148,14 +164,16 @@ async def dk57_auth_middleware(request, call_next):
     header.  Static /files/* and docs stay open (local tooling).
     """
     if _API_KEY and request.url.path.startswith("/api/"):
-        header = request.headers.get("x-api-key", "")
-        auth = request.headers.get("authorization", "")
-        bearer = auth[7:] if auth.lower().startswith("bearer ") else ""
-        if header != _API_KEY and bearer != _API_KEY:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or missing API key"},
-            )
+        exempt = {"/api/youtube/auth/callback"}
+        if request.url.path not in exempt:
+            header = request.headers.get("x-api-key", "")
+            auth = request.headers.get("authorization", "")
+            bearer = auth[7:] if auth.lower().startswith("bearer ") else ""
+            if header != _API_KEY and bearer != _API_KEY:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing API key"},
+                )
     return await call_next(request)
 
 
@@ -201,7 +219,9 @@ def _raise_if_cancelled(project_id: str) -> None:
 async def on_startup() -> None:
     """Ensure the SQLite tables exist when the server starts."""
     await database.init_db()
+    await control_db.init_control_db()
     os.makedirs(TMP_DIR, exist_ok=True)
+    await command_center.initialize()
     logger.info("Database initialised, tmp dir ready at %s", TMP_DIR)
 
 
@@ -320,9 +340,33 @@ class StatsResponse(BaseModel):
     failed: int
 
 
+class AdminUnlockRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+
+
+class CommandCenterConfigRequest(BaseModel):
+    stumps_team_id: Optional[str] = None
+    publish_mode: Optional[str] = None
+    auto_publish_minimum: Optional[int] = Field(default=None, ge=0, le=100)
+    pre_roll_seconds: Optional[int] = Field(default=None, ge=1, le=60)
+    post_roll_seconds: Optional[int] = Field(default=None, ge=1, le=60)
+    youtube_privacy_status: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else "unknown"
+
+
+def _mask_secret(value: str) -> str:
+    return "••••••••••••" if value else "Not configured"
+
 
 def _normalize_settings(raw: Optional[dict]) -> dict:
     """Coerce a raw settings payload into the canonical dict (DKC 57)."""
@@ -1131,13 +1175,171 @@ async def update_settings(body: UpdateSettingsRequest):
     return {"success": True}
 
 
+# ---------------------------------------------------------------------------
+# REST routes — AITZAZ AI command center
+# ---------------------------------------------------------------------------
+
+@app.get("/api/command-center/state")
+async def get_command_center_state():
+    return await command_center.refresh(force=True)
+
+
+@app.get("/api/diagnostics")
+async def get_diagnostics():
+    state = await command_center.refresh(force=True)
+    return {"diagnostics": state["diagnostics"], "production": state["production"]}
+
+
+@app.get("/api/youtube/status")
+async def get_youtube_status():
+    state = await command_center.refresh(force=True)
+    return state["youtube"]
+
+
+@app.post("/api/youtube/auth/start")
+async def youtube_auth_start(request: Request):
+    if not youtube_oauth.oauth_configured():
+        raise HTTPException(status_code=400, detail="Google OAuth is not configured on the backend")
+    state = youtube_oauth.new_state()
+    request.session["youtube_oauth_state"] = state
+    auth_url = youtube_oauth.build_auth_url(state)
+    await control_db.add_audit_log("youtube_auth_start", _client_ip(request), True, "Started YouTube OAuth flow")
+    return {"auth_url": auth_url}
+
+
+@app.get("/api/youtube/auth/callback")
+async def youtube_auth_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    app_base_url = youtube_oauth.oauth_env().get("app_base_url") or "http://localhost:5000"
+    if error:
+        await control_db.add_audit_log("youtube_auth_callback", _client_ip(request), False, error)
+        return RedirectResponse(f"{app_base_url}/?youtube=error")
+    if not code or not state or state != request.session.get("youtube_oauth_state"):
+        await control_db.add_audit_log("youtube_auth_callback", _client_ip(request), False, "Invalid OAuth state or missing code")
+        return RedirectResponse(f"{app_base_url}/?youtube=invalid_state")
+    await youtube_oauth.exchange_code(code)
+    request.session.pop("youtube_oauth_state", None)
+    await control_db.add_audit_log("youtube_auth_callback", _client_ip(request), True, "YouTube OAuth completed")
+    await command_center.refresh(force=True)
+    return RedirectResponse(f"{app_base_url}/?youtube=connected")
+
+
+@app.post("/api/youtube/disconnect")
+async def youtube_disconnect(request: Request):
+    await youtube_oauth.clear_tokens()
+    await control_db.add_audit_log("youtube_disconnect", _client_ip(request), True, "Disconnected YouTube")
+    return await command_center.refresh(force=True)
+
+
+@app.get("/api/admin/session")
+async def admin_session(request: Request):
+    return admin_security.session_status(request.session)
+
+
+@app.post("/api/admin/unlock")
+async def admin_unlock(request: Request, body: AdminUnlockRequest):
+    ok, message = admin_security.unlock(request.session, _client_ip(request), body.code)
+    await control_db.add_audit_log("admin_unlock", _client_ip(request), ok, message)
+    if not ok:
+        raise HTTPException(status_code=401, detail=message)
+    return {"message": message, **admin_security.session_status(request.session)}
+
+
+@app.post("/api/admin/lock")
+async def admin_lock(request: Request):
+    admin_security.lock(request.session)
+    await control_db.add_audit_log("admin_lock", _client_ip(request), True, "Admin session locked")
+    return {"success": True, **admin_security.session_status(request.session)}
+
+
+@app.get("/api/admin/config")
+async def get_admin_config(request: Request):
+    admin_security.require_admin(request.session)
+    config = await control_db.get_all_config()
+    return {
+        "config": config,
+        "secrets": {
+            "openai": _mask_secret(os.getenv("OPENAI_API_KEY", "")),
+            "gemini": _mask_secret(os.getenv("GEMINI_API_KEY", "")),
+            "youtube_client_id": _mask_secret(os.getenv("GOOGLE_CLIENT_ID", "")),
+            "youtube_client_secret": _mask_secret(os.getenv("GOOGLE_CLIENT_SECRET", "")),
+            "admin_unlock_code": _mask_secret(os.getenv("ADMIN_UNLOCK_CODE", "")),
+            "session_secret": _mask_secret(os.getenv("SESSION_SECRET", "")),
+        },
+        "audit_logs": await control_db.list_audit_logs(25),
+    }
+
+
+@app.post("/api/admin/config")
+async def update_admin_config(request: Request, body: CommandCenterConfigRequest):
+    admin_security.require_admin(request.session)
+    updates = body.model_dump(exclude_none=True)
+    if "publish_mode" in updates and updates["publish_mode"] not in {"auto", "approval", "manual"}:
+        raise HTTPException(status_code=400, detail="publish_mode must be auto, approval, or manual")
+    if "youtube_privacy_status" in updates and updates["youtube_privacy_status"] not in {"private", "unlisted", "public"}:
+        raise HTTPException(status_code=400, detail="youtube_privacy_status must be private, unlisted, or public")
+    for key, value in updates.items():
+        await control_db.set_config(key, value)
+    await control_db.add_audit_log("admin_config_update", _client_ip(request), True, json.dumps(sorted(updates.keys())))
+    return await get_admin_config(request)
+
+
+@app.post("/api/production/start")
+async def start_production(request: Request):
+    admin_security.require_admin(request.session)
+    try:
+        state = await command_center.start_production()
+        await control_db.add_audit_log("production_start", _client_ip(request), True, "Production mode started")
+        return state
+    except RuntimeError as exc:
+        await control_db.add_audit_log("production_start", _client_ip(request), False, str(exc))
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/api/production/stop")
+async def stop_production(request: Request):
+    admin_security.require_admin(request.session)
+    state = await command_center.stop_production()
+    await control_db.add_audit_log("production_stop", _client_ip(request), True, "Production mode stopped")
+    return state
+
+
+@app.post("/api/publishing/jobs/{job_id}/approve")
+async def approve_publishing_job(request: Request, job_id: str):
+    admin_security.require_admin(request.session)
+    await control_db.add_audit_log("publishing_approve", _client_ip(request), True, f"Approved job {job_id}")
+    return await command_center.approve_job(job_id)
+
+
+@app.get("/api/command-center/events")
+async def stream_command_center_events():
+    queue = await command_center.subscribe()
+
+    async def event_generator():
+        try:
+            while True:
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"event: {payload['event']}\ndata: {json.dumps(payload['data'])}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        except asyncio.CancelledError:
+            raise
+        finally:
+            command_center.unsubscribe(queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 @app.get("/api/health")
 async def health():
-    """Liveness probe (DKC 57 / Docker)."""
+    """Liveness probe (AITZAZ AI / Docker)."""
     return {
         "status": "ok",
-        "app": "DKC 57 Video Clipper",
+        "app": "AITZAZ AI",
         "ffmpeg": ffmpeg_util.ffmpeg_available(),
+        "session_secret_configured": bool(os.getenv("SESSION_SECRET", "").strip()),
+        "youtube_oauth_configured": youtube_oauth.oauth_configured(),
+        "admin_code_configured": admin_security.is_configured(),
     }
 
 

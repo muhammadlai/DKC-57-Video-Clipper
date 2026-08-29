@@ -1,8 +1,9 @@
-# DKC 57 Video Clipper
+# AITZAZ AI / DKC 57 Video Clipper
 
-**AI-Powered Shorts Generator** — a local-first, self-hosted tool that turns
-long videos into ready-to-post 9:16 shorts: transcribe → find the best
-moments → cut → reframe → captions → optional DKC 57 watermark → export.
+**AITZAZ AI — Live Content Command Center** now ships in this repository.
+It adds a real backend command center for **YouTube Live + STUMPS cricket
+context + backend AI + rolling buffer + publishing queue**, while retaining
+legacy DKC 57 clip-processing routes for on-demand video clipping.
 
 Built on [OpenClip](https://github.com/aionixOS/Openclip) (MIT) by AIONIX.
 See [NOTICE.md](NOTICE.md) for full provenance and attribution.

@@ -1,416 +1,380 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import {
-    getProjects,
-    getStats,
-    deleteProject,
-    createProjectWithSettings,
-    uploadVideo,
-    cancelProject,
-} from "@/lib/api";
-import { Project, Stats, ProjectStatus } from "@/lib/types";
-import { useProjectProgress } from "@/lib/websocket";
-import { DkcLogo } from "@/components/layout/DkcLogo";
+  approvePublishingJob,
+  disconnectYouTube,
+  getAdminSession,
+  startProductionMode,
+  startYouTubeAuth,
+  stopProductionMode,
+} from '@/lib/api';
+import { useCommandCenterState } from '@/lib/command-center';
+import { CommandCenterState, DiagnosticItem, PublishingJob } from '@/lib/types';
 
-const PROCESSING_STATUSES: ProjectStatus[] = [
-    "pending", "retrying", "downloading", "transcribing", "analyzing", "processing",
-];
-
-function getYouTubeThumbnail(url: string): string | null {
-    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?/]+)/);
-    return match ? `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg` : null;
+function Dot({ ok }: { ok: boolean }) {
+  return <span className={`inline-block h-2.5 w-2.5 rounded-full ${ok ? 'bg-emerald-400' : 'bg-slate-500'}`} />;
 }
 
-function formatTimeAgo(dateStr: string): string {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const hours = Math.floor(diff / 3600000);
-    if (hours < 1) return "just now";
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
+function statusText(ok: boolean, yes = 'CONNECTED', no = 'OFFLINE') {
+  return ok ? `🟢 ${yes}` : `⚪ ${no}`;
 }
 
-function StatusBadge({ status }: { status: ProjectStatus }) {
-    const cfg: Record<string, { label: string; cls: string; pulse?: boolean }> = {
-        done: { label: "Completed", cls: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" },
-        error: { label: "Failed", cls: "bg-red-500/20 text-red-400 border border-red-500/30" },
-        cancelled: { label: "Cancelled", cls: "bg-slate-500/20 text-slate-400 border border-slate-500/30" },
-        pending: { label: "Queued", cls: "bg-slate-500/20 text-slate-300 border border-slate-500/30", pulse: true },
-        retrying: { label: "Retrying", cls: "bg-amber-500/20 text-amber-400 border border-amber-500/30", pulse: true },
-        downloading: { label: "Downloading", cls: "bg-blue-500/20 text-blue-400 border border-blue-500/30", pulse: true },
-        transcribing: { label: "Transcribing", cls: "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30", pulse: true },
-        analyzing: { label: "AI Analyzing", cls: "bg-violet-500/20 text-violet-400 border border-violet-500/30", pulse: true },
-        processing: { label: "Rendering", cls: "bg-primary/20 text-primary border border-primary/30", pulse: true },
-    };
-    const c = cfg[status] || cfg.pending;
-    return (
-        <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider backdrop-blur-md ${c.cls}`}>
-            {c.pulse && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
-            {c.label}
-        </span>
-    );
+function diagColor(state: DiagnosticItem['state']) {
+  return state === 'ok'
+    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+    : 'border-amber-500/30 bg-amber-500/10 text-amber-200';
 }
 
-/** Live progress bar for one active job (DKC 57 queue). */
-function QueueItem({ project, onDone }: { project: Project; onDone: () => void }) {
-    const { stage, percent, message, connected } = useProjectProgress(project.id);
+function platformBadge(job: PublishingJob) {
+  if (job.status === 'published') return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+  if (job.status === 'failed') return 'bg-red-500/15 text-red-300 border-red-500/30';
+  if (job.status === 'approval_required') return 'bg-amber-500/15 text-amber-200 border-amber-500/30';
+  if (job.status === 'blocked') return 'bg-slate-500/15 text-slate-300 border-slate-500/30';
+  return 'bg-blue-500/15 text-blue-200 border-blue-500/30';
+}
 
-    useEffect(() => {
-        if (stage === "done" || stage === "error" || stage === "cancelled") {
-            const t = setTimeout(onDone, 2500);
-            return () => clearTimeout(t);
-        }
-    }, [stage, onDone]);
-
-    const pct = Math.min(100, Math.max(0, percent));
-    const displayStage = stage === "Initializing..." ? project.status : stage;
-
-    return (
-        <div className="rounded-2xl bg-panel border border-white/5 p-4">
-            <div className="flex items-center justify-between gap-3 mb-2">
-                <div className="min-w-0">
-                    <p className="text-sm font-bold text-white truncate">
-                        {project.title || (project.source_type === "upload" ? "Uploaded video" : "YouTube video")}
-                    </p>
-                    <p className="text-[11px] text-slate-500 truncate">
-                        {message || displayStage}
-                    </p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                    <StatusBadge status={stage === "done" ? "done" : stage === "error" ? "error" : stage === "cancelled" ? "cancelled" : project.status} />
-                    {PROCESSING_STATUSES.includes(project.status) && stage !== "done" && stage !== "error" && (
-                        <button
-                            onClick={() => cancelProject(project.id).then(onDone).catch(console.error)}
-                            className="rounded-lg bg-white/5 hover:bg-red-500/20 border border-white/10 hover:border-red-500/30 px-3 py-1 text-[10px] font-bold text-slate-300 hover:text-red-400 transition-colors"
-                        >
-                            CANCEL
-                        </button>
-                    )}
-                </div>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-                <div
-                    className="h-full rounded-full bg-gradient-to-r from-primary to-accent-red transition-all duration-500"
-                    style={{ width: `${pct}%` }}
-                />
-            </div>
-            {!connected && stage === "Initializing..." && (
-                <p className="mt-1 text-[10px] text-slate-600">Connecting to progress stream…</p>
-            )}
+function MatchBlock({ state }: { state: CommandCenterState }) {
+  const match = state.stumps.match;
+  return (
+    <section className="rounded-3xl border border-white/10 bg-[#0d1017] p-6 shadow-2xl shadow-black/20">
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">STUMPS</p>
+          <p className="mt-2 text-sm font-semibold text-white">{state.stumps.team_name || 'Configured Team'}</p>
         </div>
-    );
+        <span className="text-sm font-semibold text-white">{state.stumps.connected ? '🟢 CONNECTED' : '⚪ NOT CONNECTED'}</span>
+      </div>
+
+      {match ? (
+        <div className="space-y-4">
+          <InfoRow label="MATCH" value={[match.team_home, match.team_away].filter(Boolean).join(' vs ') || 'Active match'} />
+          <InfoRow label="SCORE" value={match.score && match.wickets ? `${match.score}/${match.wickets}` : 'Unavailable'} />
+          <InfoRow label="OVERS" value={match.overs || 'Unavailable'} />
+          <InfoRow label="STRIKER" value={match.striker || 'Unavailable'} />
+          <InfoRow label="NON-STRIKER" value={match.non_striker || 'Unavailable'} />
+          <InfoRow label="BOWLER" value={match.bowler || 'Unavailable'} />
+          <InfoRow label="RECENT BALLS" value={match.recent_balls?.join(' · ') || 'Unavailable'} />
+          <InfoRow label="EVENT" value={match.event || 'Waiting'} />
+        </div>
+      ) : (
+        <p className="text-sm leading-6 text-slate-400">
+          {state.stumps.limitation || 'No active STUMPS match is currently available.'}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-white/5 pb-3 last:border-b-0 last:pb-0">
+      <span className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">{label}</span>
+      <span className="text-right text-sm font-medium text-white">{value}</span>
+    </div>
+  );
 }
 
 export default function Dashboard() {
+  const { state, setState, loading, error } = useCommandCenterState();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [adminActive, setAdminActive] = useState(false);
+
+  useEffect(() => {
+    getAdminSession().then((session) => setAdminActive(session.active)).catch(() => undefined);
+  }, []);
+
+  if (loading || !state) {
     return (
-        <Suspense>
-            <DashboardInner />
-        </Suspense>
+      <div className="mx-auto flex min-h-[70vh] max-w-7xl items-center justify-center px-6 text-slate-300">
+        Loading AITZAZ AI command center…
+      </div>
     );
-}
+  }
 
-function DashboardInner() {
-    const router = useRouter();
-    const searchParams = useSearchParams();
-    const searchQuery = (searchParams.get("q") || "").toLowerCase();
+  const currentEvent = state.live_analysis.current_event;
+  const approvalJobs = state.publishing.jobs.filter((job) => job.status === 'approval_required');
 
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [stats, setStats] = useState<Stats>({ videos: 0, shorts: 0, processing: 0, failed: 0 });
-    const [loading, setLoading] = useState(true);
-    const [urlInput, setUrlInput] = useState("");
-    const [submitting, setSubmitting] = useState(false);
-    const [uploading, setUploading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const urlRef = useRef<HTMLInputElement>(null);
-    const fileRef = useRef<HTMLInputElement>(null);
-    const [dragOver, setDragOver] = useState(false);
+  const runAction = async (key: string, fn: () => Promise<CommandCenterState | void>) => {
+    setBusy(key);
+    setActionError(null);
+    try {
+      const next = await fn();
+      if (next && typeof next === 'object' && 'app' in next) {
+        setState(next);
+      }
+      const session = await getAdminSession();
+      setAdminActive(session.active);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setBusy(null);
+    }
+  };
 
-    const refresh = useCallback(() => {
-        getProjects().then(setProjects).catch(console.error).finally(() => setLoading(false));
-        getStats().then(setStats).catch(console.error);
-    }, []);
-
-    useEffect(() => {
-        refresh();
-        const t = setInterval(refresh, 5000);
-        return () => clearInterval(t);
-    }, [refresh]);
-
-    const handleDelete = async (e: React.MouseEvent, id: string) => {
-        e.preventDefault();
-        e.stopPropagation();
-        await deleteProject(id).catch(console.error);
-        refresh();
-    };
-
-    const handleQuickCreate = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!urlInput.trim() || submitting) return;
-        setSubmitting(true);
-        setError(null);
-        try {
-            const { project_id } = await createProjectWithSettings(urlInput.trim());
-            router.push(`/project/${project_id}`);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to create project");
-            setSubmitting(false);
-        }
-    };
-
-    const handleFiles = async (files: FileList | File[]) => {
-        const list = Array.from(files).filter(f =>
-            /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(f.name)
-        );
-        if (list.length === 0) {
-            setError("No supported video files (mp4, mov, mkv, webm, avi).");
-            return;
-        }
-        setUploading(true);
-        setError(null);
-        try {
-            // Background queue: each upload starts a job on the server.
-            await Promise.all(list.map(f => uploadVideo(f)));
-            refresh();
-            router.push("/?queue=1");
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Upload failed");
-        } finally {
-            setUploading(false);
-            if (fileRef.current) fileRef.current.value = "";
-        }
-    };
-
-    const handlePaste = async () => {
-        try {
-            const text = await navigator.clipboard.readText();
-            setUrlInput(text);
-            urlRef.current?.focus();
-        } catch { /* ignore */ }
-    };
-
-    const queue = projects.filter(p => PROCESSING_STATUSES.includes(p.status));
-    const recent = projects
-        .filter(p =>
-            !searchQuery ||
-            (p.title || "").toLowerCase().includes(searchQuery) ||
-            (p.youtube_url || "").toLowerCase().includes(searchQuery)
-        )
-        .slice(0, 12);
-
-    return (
-        <div className="mx-auto w-full max-w-7xl px-6 lg:px-20 py-10">
-
-            {/* Header band */}
-            <section className="relative mb-10 overflow-hidden rounded-3xl border border-white/5 bg-panel">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(225,29,72,0.18),transparent_55%)]" />
-                <div className="relative flex flex-col lg:flex-row lg:items-center gap-8 p-8 lg:p-12">
-                    <div className="flex items-center gap-5">
-                        <DkcLogo size={72} />
-                        <div>
-                            <h1 className="text-3xl lg:text-4xl font-bold tracking-tight text-white">
-                                DKC 57 <span className="text-primary">VIDEO CLIPPER</span>
-                            </h1>
-                            <p className="mt-1 text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">
-                                AI-Powered Shorts Generator
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex-1" />
-                    {/* Stat cards */}
-                    <div className="grid grid-cols-3 gap-4 lg:w-auto">
-                        {[
-                            { label: "Videos", value: stats.videos, cls: "text-white" },
-                            { label: "Shorts", value: stats.shorts, cls: "text-primary" },
-                            { label: "Processing", value: stats.processing, cls: "text-amber-400" },
-                        ].map(s => (
-                            <div key={s.label} className="rounded-2xl bg-black/40 border border-white/5 px-6 py-4 text-center min-w-[110px]">
-                                <p className={`text-3xl font-bold tabular-nums ${s.cls}`}>{s.value}</p>
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">{s.label}</p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </section>
-
-            {/* Upload hero */}
-            <section className="mb-10 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* File upload */}
-                <div
-                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                    onDragLeave={() => setDragOver(false)}
-                    onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
-                    className={`relative flex flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed p-10 text-center transition-all ${
-                        dragOver ? "border-primary bg-primary/10" : "border-white/10 bg-panel hover:border-primary/40"
-                    }`}
-                >
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 border border-primary/25">
-                        <svg className="h-7 w-7 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4" />
-                        </svg>
-                    </div>
-                    <div>
-                        <p className="text-lg font-bold text-white">
-                            {uploading ? "Uploading to background queue…" : "Upload long videos"}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                            Drag & drop or browse — mp4, mov, mkv, webm, avi.
-                            Multiple files supported (bulk processing).
-                        </p>
-                    </div>
-                    <button
-                        onClick={() => fileRef.current?.click()}
-                        disabled={uploading}
-                        className="flex items-center gap-2 rounded-xl bg-primary px-6 py-3.5 text-sm font-bold text-white glow-primary hover:bg-primary/90 transition-all disabled:opacity-50"
-                    >
-                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                        + UPLOAD VIDEO
-                    </button>
-                    <input
-                        ref={fileRef}
-                        type="file"
-                        accept=".mp4,.mov,.mkv,.webm,.avi,.m4v"
-                        multiple
-                        className="hidden"
-                        onChange={e => e.target.files && handleFiles(e.target.files)}
-                    />
-                </div>
-
-                {/* YouTube URL + settings CTA */}
-                <div className="flex flex-col justify-between gap-6 rounded-3xl bg-panel border border-white/5 p-8">
-                    <div>
-                        <h2 className="text-xl font-bold text-white mb-1">Create Shorts</h2>
-                        <p className="text-sm text-slate-500">
-                            Paste a YouTube link, or open the full workflow to configure
-                            clip count, duration, captions, face tracking, watermark and more.
-                        </p>
-                    </div>
-                    <form onSubmit={handleQuickCreate} className="flex items-center gap-2 rounded-xl bg-black/40 px-4 py-3 border border-white/10 focus-within:border-primary/50 transition-all">
-                        <svg className="h-5 w-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                        <input
-                            ref={urlRef}
-                            value={urlInput}
-                            onChange={e => setUrlInput(e.target.value)}
-                            className="flex-1 bg-transparent border-none text-sm text-white placeholder-slate-500 focus:ring-0 focus:outline-none p-0"
-                            placeholder="Paste YouTube link…"
-                            type="text"
-                        />
-                        <button
-                            type="button"
-                            onClick={handlePaste}
-                            className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-white/10 transition-colors uppercase tracking-wider"
-                        >
-                            Paste
-                        </button>
-                    </form>
-                    {error && (
-                        <div className="flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
-                            <svg className="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            {error}
-                        </div>
-                    )}
-                    <div className="flex flex-wrap gap-3">
-                        <Link
-                            href="/create"
-                            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-6 py-4 text-sm font-bold text-white glow-primary hover:bg-primary/90 transition-all"
-                        >
-                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                            CREATE SHORTS
-                        </Link>
-                    </div>
-                </div>
-            </section>
-
-            {/* Processing queue */}
-            {queue.length > 0 && (
-                <section className="mb-10">
-                    <div className="mb-4 flex items-center justify-between">
-                        <h2 className="flex items-center gap-2 text-lg font-bold text-white">
-                            <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                            Processing Queue
-                            <span className="text-xs font-bold text-slate-500">({queue.length} active)</span>
-                        </h2>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {queue.map(p => (
-                            <QueueItem key={p.id} project={p} onDone={refresh} />
-                        ))}
-                    </div>
-                </section>
-            )}
-
-            {/* Recent projects */}
-            <section>
-                <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-bold text-white">
-                        Recent Projects
-                        {searchQuery && <span className="text-xs text-slate-500 font-normal"> (filtered by “{searchQuery}”)</span>}
-                    </h2>
-                    <Link href="/library" className="text-xs font-bold uppercase tracking-wider text-primary hover:text-white transition-colors">
-                        Video Library →
-                    </Link>
-                </div>
-
-                {loading ? (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {[...Array(3)].map((_, i) => (
-                            <div key={i} className="h-24 rounded-2xl bg-panel border border-white/5 animate-pulse" />
-                        ))}
-                    </div>
-                ) : recent.length === 0 ? (
-                    <div className="rounded-3xl bg-panel border border-white/5 py-16 text-center">
-                        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20">
-                            <svg className="h-8 w-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" /></svg>
-                        </div>
-                        <p className="text-slate-300 font-semibold">No projects yet</p>
-                        <p className="text-slate-500 text-sm mt-1">Upload a video or paste a YouTube URL to create your first shorts</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {recent.map(project => {
-                            const thumb = getYouTubeThumbnail(project.youtube_url);
-                            return (
-                                <Link
-                                    key={project.id}
-                                    href={`/project/${project.id}`}
-                                    className="group flex items-center gap-4 rounded-2xl bg-panel border border-white/5 p-4 hover:border-primary/40 transition-all"
-                                >
-                                    <div className="relative w-20 aspect-[9/16] rounded-xl overflow-hidden flex-shrink-0 bg-black flex items-center justify-center">
-                                        {thumb ? (
-                                            <img src={thumb} alt="" className="h-full w-full object-cover" />
-                                        ) : project.source_type === "upload" ? (
-                                            <svg className="h-7 w-7 text-primary/50" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                                        ) : (
-                                            <svg className="h-7 w-7 text-slate-700" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                                        )}
-                                        <span className="absolute bottom-1 left-1 right-1 rounded bg-black/70 px-1 py-0.5 text-center text-[9px] font-bold text-white">
-                                            {project.source_type === "upload" ? "UPLOAD" : "YT"}
-                                        </span>
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h3 className="font-bold text-white group-hover:text-primary transition-colors truncate text-sm">
-                                            {project.title || (project.source_type === "upload" ? "Uploaded video" : "Untitled")}
-                                        </h3>
-                                        <p className="mt-0.5 text-xs text-slate-500">
-                                            {formatTimeAgo(project.created_at)}
-                                            {project.clip_count ? ` • ${project.clip_count} shorts` : ""}
-                                        </p>
-                                        <div className="mt-2"><StatusBadge status={project.status} /></div>
-                                    </div>
-                                    <button
-                                        onClick={e => handleDelete(e, project.id)}
-                                        className="text-slate-700 hover:text-red-400 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
-                                        title="Delete project"
-                                    >
-                                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                    </button>
-                                </Link>
-                            );
-                        })}
-                    </div>
-                )}
-            </section>
+  return (
+    <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-14">
+      <section className="rounded-[32px] border border-white/10 bg-gradient-to-br from-[#111625] via-[#0b0f18] to-[#080b11] p-8 shadow-[0_20px_80px_rgba(0,0,0,0.35)]">
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.4em] text-rose-400">AITZAZ AI</p>
+            <h1 className="mt-3 text-4xl font-black tracking-tight text-white lg:text-5xl">LIVE CONTENT COMMAND CENTER</h1>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-400">
+              Connect YouTube, verify the real STUMPS match feed, monitor live cricket context,
+              and let the backend-only AI pipeline create, caption, score, and queue clips.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[430px]">
+            {[
+              { label: 'YouTube', value: state.youtube.connected ? 'Connected' : 'Waiting' },
+              { label: 'Live', value: state.youtube.live_active ? 'Active' : 'Offline' },
+              { label: 'STUMPS', value: state.stumps.match ? 'Live Data' : 'Waiting' },
+              { label: 'AI', value: state.ai_engine.online ? 'Online' : 'Offline' },
+            ].map((item) => (
+              <div key={item.label} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-center">
+                <p className="text-2xl font-black text-white">{item.value}</p>
+                <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">{item.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
-    );
+
+        <div className="mt-8 flex flex-wrap gap-3">
+          <button
+            onClick={() => runAction('youtube-connect', async () => {
+              const { auth_url } = await startYouTubeAuth();
+              window.location.href = auth_url;
+            })}
+            disabled={busy === 'youtube-connect' || !state.youtube.configured}
+            className="rounded-2xl bg-rose-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === 'youtube-connect' ? 'Opening OAuth…' : 'CONNECT YOUTUBE'}
+          </button>
+          <button
+            onClick={() => runAction('youtube-disconnect', () => disconnectYouTube())}
+            disabled={busy === 'youtube-disconnect' || !state.youtube.connected}
+            className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-bold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === 'youtube-disconnect' ? 'Disconnecting…' : 'DISCONNECT'}
+          </button>
+          <Link href="/admin" className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-bold text-slate-200 transition hover:bg-white/10">
+            🔒 ADMIN / DEVELOPER
+          </Link>
+          <Link href="/library" className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-bold text-slate-200 transition hover:bg-white/10">
+            CLIP LIBRARY
+          </Link>
+        </div>
+
+        {error && <p className="mt-5 text-sm text-amber-300">{error}</p>}
+        {actionError && <p className="mt-2 text-sm text-red-300">{actionError}</p>}
+        {!state.youtube.configured && (
+          <p className="mt-4 text-sm text-amber-300">
+            Google OAuth is not configured on the backend. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+            YOUTUBE_OAUTH_REDIRECT_URI, and APP_BASE_URL before testing YouTube connection.
+          </p>
+        )}
+      </section>
+
+      <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_1fr]">
+        <section className="rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">YOUTUBE</p>
+              <p className="mt-2 text-sm font-semibold text-white">
+                {state.youtube.channel_name ? `Channel: ${state.youtube.channel_name}` : 'Channel not connected'}
+              </p>
+            </div>
+            <span className="text-sm font-semibold text-white">
+              {statusText(state.youtube.connected, 'CONNECTED', 'NOT CONNECTED')}
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            <InfoRow label="LIVE" value={statusText(state.youtube.live_active, 'ACTIVE', 'OFFLINE')} />
+            <InfoRow label="SOURCE" value={state.youtube.source.ok ? '🟢 VERIFIED' : '⚪ UNAVAILABLE'} />
+            <InfoRow label="TITLE" value={state.youtube.live?.title || 'No active live broadcast'} />
+            <InfoRow label="VIEWERS" value={String(state.youtube.live?.concurrent_viewers || '--')} />
+            <InfoRow label="LIVE URL" value={state.youtube.live?.url || 'Unavailable'} />
+          </div>
+        </section>
+
+        <MatchBlock state={state} />
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <section className="rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">AI ENGINE</p>
+          <div className="mt-4 flex items-center gap-3 text-white">
+            <Dot ok={state.ai_engine.online} />
+            <span className="text-lg font-bold">{state.ai_engine.online ? 'ONLINE' : 'AI BACKEND NOT CONFIGURED'}</span>
+          </div>
+          <div className="mt-5 space-y-3 text-sm text-slate-300">
+            <InfoRow label="PRIMARY" value={state.ai_engine.primary || 'Unavailable'} />
+            <InfoRow label="FALLBACK" value={state.ai_engine.fallback || 'Unavailable'} />
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">LIVE ANALYSIS</p>
+          <div className="mt-4 flex items-center gap-3 text-white">
+            <Dot ok={state.live_analysis.watching} />
+            <span className="text-lg font-bold">{state.live_analysis.watching ? 'WATCHING' : 'WAITING'}</span>
+          </div>
+          <div className="mt-5 space-y-4 text-sm text-slate-300">
+            <InfoRow label="CURRENT EVENT" value={currentEvent?.event_type || 'WAITING'} />
+            <InfoRow label="VIRAL SCORE" value={currentEvent?.viral_score != null ? `${currentEvent.viral_score}/100` : '--/100'} />
+            <InfoRow label="BUFFER" value={state.buffer.ready ? `${state.buffer.segment_count} segments ready` : 'Not ready'} />
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">PUBLISHING</p>
+          <div className="mt-4 space-y-4 text-sm text-slate-300">
+            <InfoRow label="MODE" value={state.publishing.mode.toUpperCase()} />
+            <InfoRow label="YouTube" value={state.publishing.platforms.youtube?.ready ? '🟢 READY' : `⚪ ${state.publishing.platforms.youtube?.message || 'Unavailable'}`} />
+            <InfoRow label="Facebook" value={state.publishing.platforms.facebook?.ready ? '🟢 READY' : `⚪ ${state.publishing.platforms.facebook?.message || 'Unavailable'}`} />
+            <InfoRow label="TikTok" value="🟡 APPROVAL REQUIRED" />
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-6 rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">PRODUCTION MODE</p>
+            <p className="mt-2 text-sm text-slate-400">
+              Start remains disabled until YouTube Live, STUMPS, AI, Media Pipeline, Rolling Buffer,
+              Clip Worker, and Publishing Queue are verified by the backend.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => runAction('start-production', () => startProductionMode())}
+              disabled={busy === 'start-production' || !state.production.can_start || !adminActive || state.production.active}
+              className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-black text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {state.production.active ? 'PRODUCTION ACTIVE' : 'START PRODUCTION MODE'}
+            </button>
+            <button
+              onClick={() => runAction('stop-production', () => stopProductionMode())}
+              disabled={busy === 'stop-production' || !adminActive || !state.production.active}
+              className="rounded-2xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-black text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              STOP
+            </button>
+          </div>
+        </div>
+        {!adminActive && (
+          <p className="mt-4 text-sm text-amber-300">Admin unlock is required before production mode can be started or stopped.</p>
+        )}
+        {!state.production.can_start && (
+          <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-amber-200">
+            {state.production.blockers.map((blocker) => (
+              <li key={blocker}>{blocker}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_1fr]">
+        <section className="rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">RECENT MOMENTS</p>
+            <span className="text-xs text-slate-500">Realtime backend state</span>
+          </div>
+          <div className="space-y-3">
+            {state.moments.length === 0 ? (
+              <p className="text-sm text-slate-400">No verified live moments have been detected yet.</p>
+            ) : (
+              state.moments.slice(0, 6).map((moment) => (
+                <div key={moment.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-black text-white">{moment.title || moment.event_type}</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {[moment.player, moment.bowler && `vs ${moment.bowler}`, moment.score_text, moment.over_text && `Over ${moment.over_text}`]
+                          .filter(Boolean)
+                          .join(' • ') || 'Verified match context only'}
+                      </p>
+                    </div>
+                    <div className="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-black text-rose-200">
+                      {moment.viral_score != null ? `${moment.viral_score}` : '--'}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">PUBLISHING QUEUE</p>
+            <span className="text-xs text-slate-500">Approval mode default</span>
+          </div>
+          <div className="space-y-3">
+            {state.publishing.jobs.length === 0 ? (
+              <p className="text-sm text-slate-400">No publishing jobs have been queued yet.</p>
+            ) : (
+              state.publishing.jobs.slice(0, 10).map((job) => (
+                <div key={job.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-white">{job.platform.toUpperCase()} — {job.metadata.title || job.title || job.platform}</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {job.player ? `${job.player} • ` : ''}
+                        {job.viral_score != null ? `Viral ${job.viral_score}/100` : 'Awaiting score'}
+                        {job.error_message ? ` • ${job.error_message}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] ${platformBadge(job)}`}>
+                        {job.status.replace('_', ' ')}
+                      </span>
+                      {job.status === 'approval_required' && adminActive && (
+                        <button
+                          onClick={() => runAction(`approve-${job.id}`, () => approvePublishingJob(job.id))}
+                          disabled={busy === `approve-${job.id}`}
+                          className="rounded-xl bg-white/10 px-3 py-2 text-xs font-bold text-white hover:bg-white/20"
+                        >
+                          APPROVE
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          {approvalJobs.length > 0 && !adminActive && (
+            <p className="mt-4 text-sm text-amber-300">Unlock admin mode to approve queued publishing jobs.</p>
+          )}
+        </section>
+      </div>
+
+      <section className="mt-6 rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-slate-500">REAL DIAGNOSTICS</p>
+          <span className="text-xs text-slate-500">Refreshed {state.refreshed_at}</span>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {state.diagnostics.map((item) => (
+            <div key={item.key} className={`rounded-2xl border p-4 ${diagColor(item.state)}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-black text-white">{item.label}</p>
+                  <p className="mt-1 text-xs leading-5 text-inherit">{item.message}</p>
+                </div>
+                {item.required_for_start && (
+                  <span className="rounded-full border border-current/20 px-2 py-1 text-[10px] font-black uppercase tracking-[0.18em]">Required</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
 }

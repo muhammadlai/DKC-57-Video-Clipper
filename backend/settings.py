@@ -62,7 +62,7 @@ def _decrypt(token: str) -> str:
 
 
 # Keys whose values should be encrypted at rest
-_ENCRYPTED_KEYS = {"llm_api_key"}
+_ENCRYPTED_KEYS = {"llm_api_key", "youtube_oauth_tokens", "facebook_page_access_token", "tiktok_oauth_tokens"}
 
 
 # ---------------------------------------------------------------------------
@@ -158,3 +158,17 @@ async def get_all_settings() -> Dict[str, Any]:
         await conn.close()
 
     return result
+
+
+async def get_json_setting(key: str) -> Optional[Dict[str, Any]]:
+    value = await get_setting(key)
+    if not value:
+        return None
+    try:
+        return __import__("json").loads(value)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to parse JSON setting '{key}': {exc}") from exc
+
+
+async def set_json_setting(key: str, value: Dict[str, Any]) -> None:
+    await set_setting(key, __import__("json").dumps(value))

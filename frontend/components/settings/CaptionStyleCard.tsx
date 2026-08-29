@@ -1,7 +1,5 @@
 "use client";
 
-import { CaptionStyle } from "@/lib/types";
-
 export interface CaptionStyleCardProps {
     styleKey: string;
     name: string;

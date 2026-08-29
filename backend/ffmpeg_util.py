@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _cache: dict[str, str] = {}
+_static_ffmpeg_attempted = False
 
 _BIN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin")
 
@@ -71,6 +72,20 @@ def _resolve(tool: str, env_var: str) -> str:
             logger.info("Using bundled %s at %s", tool, bundled)
             _cache[tool] = bundled
             return bundled
+
+        # Last resort: fetch static binaries via the optional static-ffmpeg package.
+        global _static_ffmpeg_attempted
+        if not _static_ffmpeg_attempted:
+            _static_ffmpeg_attempted = True
+            try:
+                import static_ffmpeg  # type: ignore
+
+                ffmpeg_path, ffprobe_path = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
+                _cache["ffmpeg"] = ffmpeg_path
+                _cache["ffprobe"] = ffprobe_path
+                return _cache[tool]
+            except Exception:
+                pass
 
         raise RuntimeError(
             f"{tool} not found. Install FFmpeg (e.g. 'apt install ffmpeg', "

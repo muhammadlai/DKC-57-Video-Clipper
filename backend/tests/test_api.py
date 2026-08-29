@@ -23,7 +23,7 @@ def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     data = r.json()
-    assert data["app"] == "DKC 57 Video Clipper"
+    assert data["app"] == "AITZAZ AI"
     assert isinstance(data["ffmpeg"], bool)
 
 

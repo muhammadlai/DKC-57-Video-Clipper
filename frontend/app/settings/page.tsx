@@ -1,332 +1,170 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getSettings, saveSettings, getCaptionStyles } from "@/lib/api";
-import { Settings, CaptionStyle } from "@/lib/types";
+import { getCaptionStyles, getSettings, saveSettings } from "@/lib/api";
+import { CaptionStyle, Settings } from "@/lib/types";
 
 const WHISPER_OPTIONS = [
-    { value: "base", label: "Base (Fast)", desc: "Lowest latency" },
-    { value: "small", label: "Small (Balanced)", desc: "Optimal performance" },
-    { value: "medium", label: "Medium (Accurate)", desc: "Highest precision" },
+  { value: "base", label: "Base (Fast)", desc: "Lowest latency" },
+  { value: "small", label: "Small (Balanced)", desc: "Balanced quality" },
+  { value: "medium", label: "Medium (Accurate)", desc: "Highest precision" },
 ] as const;
 
 export default function SettingsPage() {
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [savedStatus, setSavedStatus] = useState<string | null>(null);
-    const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [whisperModel, setWhisperModel] = useState<Settings['whisper_model']>('base');
+  const [captionStyle, setCaptionStyle] = useState('none');
+  const [captionStylesList, setCaptionStylesList] = useState<CaptionStyle[]>([]);
+  const [wmEnabled, setWmEnabled] = useState(false);
+  const [wmPosition, setWmPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('bottom_right');
+  const [wmOpacity, setWmOpacity] = useState(0.6);
 
-    const [provider, setProvider] = useState<Settings["llm_provider"]>("openai");
-    const [model, setModel] = useState("gpt-4o");
-    const [whisperModel, setWhisperModel] = useState<Settings["whisper_model"]>("base");
-    const [captionStyle, setCaptionStyle] = useState("none");
-    const [captionStylesList, setCaptionStylesList] = useState<CaptionStyle[]>([]);
-    // DKC 57 watermark defaults
-    const [wmEnabled, setWmEnabled] = useState(false);
-    const [wmPosition, setWmPosition] = useState<"top_left" | "top_right" | "bottom_left" | "bottom_right">("bottom_right");
-    const [wmOpacity, setWmOpacity] = useState(0.6);
-    const [apiKey, setApiKey] = useState("");
-    const [hasApiKey, setHasApiKey] = useState(false);
-    const [editingKey, setEditingKey] = useState(false);
+  useEffect(() => {
+    Promise.all([getSettings(), getCaptionStyles()])
+      .then(([data, styles]) => {
+        setWhisperModel(data.whisper_model);
+        setCaptionStyle(data.caption_style || 'none');
+        setWmEnabled(Boolean(data.watermark_enabled));
+        setWmPosition(data.watermark_position || 'bottom_right');
+        setWmOpacity(typeof data.watermark_opacity === 'number' ? data.watermark_opacity : 0.6);
+        setCaptionStylesList(styles);
+      })
+      .catch(() => setError('Failed to load settings.'))
+      .finally(() => setLoading(false));
+  }, []);
 
-    useEffect(() => {
-        Promise.all([getSettings(), getCaptionStyles()])
-            .then(([data, styles]) => {
-                setProvider(data.llm_provider);
-                setModel(data.llm_model);
-                setWhisperModel(data.whisper_model);
-                setCaptionStyle(data.caption_style || "none");
-                setHasApiKey(data.has_api_key);
-                setCaptionStylesList(styles);
-                setWmEnabled(Boolean(data.watermark_enabled));
-                setWmPosition(data.watermark_position || "bottom_right");
-                setWmOpacity(typeof data.watermark_opacity === "number" ? data.watermark_opacity : 0.6);
-            })
-            .catch(() => setError("Failed to load settings."))
-            .finally(() => setLoading(false));
-    }, []);
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await saveSettings({
+        whisper_model: whisperModel,
+        caption_style: captionStyle,
+        watermark_enabled: wmEnabled,
+        watermark_position: wmPosition,
+        watermark_opacity: wmOpacity,
+      });
+      setMessage('Legacy clip-processing settings saved.');
+    } catch {
+      setError('Failed to save settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-    const handleProviderChange = (p: Settings["llm_provider"]) => {
-        setProvider(p);
-        if (p === "openai") setModel("gpt-4o");
-        if (p === "anthropic") setModel("claude-3-5-sonnet-20241022");
-        if (p === "gemini") setModel("gemini-1.5-pro");
-        if (p === "ollama") setModel("llama3");
-    };
-
-    const handleSave = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSaving(true);
-        setError(null);
-        setSavedStatus(null);
-        try {
-            const payload: Partial<Settings> & { llm_api_key?: string } = {
-                llm_provider: provider,
-                llm_model: model,
-                whisper_model: whisperModel,
-                watermark_enabled: wmEnabled,
-                watermark_position: wmPosition,
-                watermark_opacity: wmOpacity,
-                caption_style: captionStyle,
-            };
-            if (editingKey || (!hasApiKey && apiKey)) payload.llm_api_key = apiKey;
-            await saveSettings(payload);
-            setSavedStatus("Settings saved!");
-            setHasApiKey(true);
-            setEditingKey(false);
-            setApiKey("");
-            setTimeout(() => setSavedStatus(null), 3000);
-        } catch {
-            setError("Failed to save settings.");
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    return (
-        <div className="flex h-[calc(100vh-65px)] overflow-hidden">
-            {/* Main Content */}
-            <main className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-                <header className="sticky top-0 z-10 flex items-center gap-4 px-10 py-5 border-b border-white/5 glass-dark">
-                    <Link href="/" className="flex h-9 w-9 items-center justify-center rounded-xl glass glass-hover transition-all text-slate-400 hover:text-white">
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-                    </Link>
-                    <h1 className="text-xl font-bold text-slate-100">Settings</h1>
-                </header>
-
-                {loading ? (
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="flex flex-col items-center gap-3">
-                            <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                            <p className="text-slate-400 text-sm">Loading settings…</p>
-                        </div>
-                    </div>
-                ) : (
-                    <form onSubmit={handleSave} className="max-w-2xl mx-auto w-full p-10 space-y-12">
-
-                        {/* LLM Provider */}
-                        <section className="space-y-6">
-                            <h2 className="text-lg font-bold text-slate-100">LLM Provider</h2>
-                            <div>
-                                <div className="flex p-1 bg-slate-900/50 rounded-xl gap-1 mb-6">
-                                    {(["openai", "anthropic", "gemini", "ollama"] as const).map(p => (
-                                        <button
-                                            key={p}
-                                            type="button"
-                                            onClick={() => handleProviderChange(p)}
-                                            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all capitalize ${
-                                                provider === p ? "bg-primary text-white" : "text-slate-400 hover:text-slate-100"
-                                            }`}
-                                        >
-                                            {p === "openai" ? "OpenAI" : p === "anthropic" ? "Anthropic" : p === "gemini" ? "Gemini" : "Ollama"}
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="space-y-4">
-                                    {provider !== "ollama" && (
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">API Key</label>
-                                            {hasApiKey && !editingKey ? (
-                                                <div className="flex items-center justify-between p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                                                    <div className="flex items-center gap-2 text-sm">
-                                                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                                                        API key saved
-                                                    </div>
-                                                    <button type="button" onClick={() => setEditingKey(true)} className="text-xs font-bold hover:underline">Change</button>
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-2">
-                                                    <input
-                                                        type="password"
-                                                        value={apiKey}
-                                                        onChange={e => setApiKey(e.target.value)}
-                                                        placeholder={provider === "openai" ? "sk-••••••••••••••••" : provider === "anthropic" ? "sk-ant-••••••••" : "AIza••••••••"}
-                                                        className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 focus:border-primary focus:outline-none transition-all text-sm"
-                                                    />
-                                                    <div className="flex items-center justify-between">
-                                                        <a href={provider === "openai" ? "https://platform.openai.com" : provider === "anthropic" ? "https://console.anthropic.com" : "https://aistudio.google.com"} target="_blank" rel="noreferrer" className="text-xs font-bold text-primary hover:underline">
-                                                            Get API key →
-                                                        </a>
-                                                        {editingKey && (
-                                                            <button type="button" onClick={() => { setEditingKey(false); setApiKey(""); }} className="text-xs text-slate-500 hover:text-white transition-colors">Cancel</button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Model Name</label>
-                                        <input
-                                            value={model}
-                                            onChange={e => setModel(e.target.value)}
-                                            className="w-full bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 focus:border-primary focus:outline-none transition-all text-sm"
-                                            placeholder="gpt-4o-mini"
-                                        />
-                                        {provider === "ollama" && (
-                                            <p className="mt-2 text-xs text-blue-400 bg-blue-500/10 p-2 rounded-lg border border-blue-500/20">
-                                                Make sure Ollama is running on localhost:11434
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* Whisper Model */}
-                        <section className="space-y-4">
-                            <h2 className="text-lg font-bold text-slate-100">Whisper Model</h2>
-                            <div className="grid grid-cols-3 gap-4">
-                                {WHISPER_OPTIONS.map(opt => (
-                                    <button
-                                        key={opt.value}
-                                        type="button"
-                                        onClick={() => setWhisperModel(opt.value)}
-                                        className={`p-4 rounded-xl text-left border transition-all ${
-                                            whisperModel === opt.value
-                                                ? "border-[var(--success)] bg-[var(--success)]/5"
-                                                : "border-slate-800 bg-slate-900/30 hover:border-slate-700"
-                                        }`}
-                                    >
-                                        <p className="font-bold text-slate-100 text-sm">{opt.label}</p>
-                                        <p className="text-xs text-slate-500 mt-1">{opt.desc}</p>
-                                    </button>
-                                ))}
-                            </div>
-                        </section>
-
-                        {/* Caption Style */}
-                        <section className="space-y-4">
-                            <h2 className="text-lg font-bold text-slate-100">Caption Style</h2>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {captionStylesList.length > 0 ? captionStylesList.map(style => (
-                                    <button
-                                        key={style.key}
-                                        type="button"
-                                        onClick={() => setCaptionStyle(style.key)}
-                                        className={`space-y-2 group transition-all`}
-                                    >
-                                        <div className={`aspect-video rounded-xl flex items-center justify-center border-2 transition-all ${
-                                            captionStyle === style.key ? "border-[var(--success)] bg-[var(--success)]/5" : "border-slate-800 bg-slate-900/50"
-                                        }`}
-                                            style={{ backgroundColor: style.preview_colors.background || undefined }}>
-                                            {style.key === "none" ? (
-                                                <span className="text-slate-600 font-bold line-through text-sm">THE QUICK</span>
-                                            ) : style.animation === "one_word" ? (
-                                                <span className="font-black uppercase" style={{ color: style.preview_colors.text || "#fff" }}>QUICK</span>
-                                            ) : style.animation === "highlight" ? (
-                                                <span className="font-bold uppercase text-sm" style={{ color: style.preview_colors.highlight || "#fff" }}>THE QUICK</span>
-                                            ) : (
-                                                <span className="font-bold uppercase text-sm" style={{ color: style.preview_colors.text || "#fff" }}>THE QUICK</span>
-                                            )}
-                                        </div>
-                                        <p className={`text-center text-xs font-bold ${captionStyle === style.key ? "text-[var(--success)]" : "text-slate-500"}`}>
-                                            {style.name}
-                                        </p>
-                                    </button>
-                                )) : (
-                                    [
-                                        { key: "none", label: "No Captions" },
-                                        { key: "dynamic", label: "Dynamic" },
-                                        { key: "outline", label: "Outline" },
-                                        { key: "classic", label: "Classic" },
-                                    ].map(s => (
-                                        <button key={s.key} type="button" onClick={() => setCaptionStyle(s.key)}
-                                            className={`space-y-2`}>
-                                            <div className={`aspect-video rounded-xl flex items-center justify-center border-2 bg-slate-900/50 ${captionStyle === s.key ? "border-[var(--success)]" : "border-slate-800"}`}>
-                                                <span className={`font-bold text-sm ${captionStyle === s.key ? "text-[var(--success)]" : "text-slate-600"}`}>THE QUICK</span>
-                                            </div>
-                                            <p className={`text-center text-xs font-bold ${captionStyle === s.key ? "text-[var(--success)]" : "text-slate-500"}`}>{s.label}</p>
-                                        </button>
-                                    ))
-                                )}
-                            </div>
-                        </section>
-
-                        {/* DKC 57 Watermark */}
-                        <section className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <h2 className="text-lg font-bold text-slate-100">DKC 57 Watermark</h2>
-                                <button
-                                    type="button"
-                                    onClick={() => setWmEnabled(v => !v)}
-                                    className={`relative h-7 w-12 rounded-full transition-colors ${wmEnabled ? "bg-primary" : "bg-slate-700"}`}
-                                    aria-pressed={wmEnabled}
-                                >
-                                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${wmEnabled ? "left-6" : "left-1"}`} />
-                                </button>
-                            </div>
-                            <p className="text-xs text-slate-500">
-                                Default watermark for new shorts. Off by default and never forced —
-                                can be overridden per project in the Create workflow.
-                            </p>
-                            {wmEnabled && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Position</label>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {(["top_left", "top_right", "bottom_left", "bottom_right"] as const).map(pos => (
-                                                <button
-                                                    key={pos}
-                                                    type="button"
-                                                    onClick={() => setWmPosition(pos)}
-                                                    className={`rounded-xl border px-3 py-2 text-xs font-bold capitalize transition-all ${
-                                                        wmPosition === pos
-                                                            ? "border-primary bg-primary/15 text-primary"
-                                                            : "border-slate-800 bg-slate-900/30 text-slate-400 hover:border-slate-600"
-                                                    }`}
-                                                >
-                                                    {pos.replace("_", " ")}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                                            Opacity — {Math.round(wmOpacity * 100)}%
-                                        </label>
-                                        <input
-                                            type="range"
-                                            min={0.1}
-                                            max={1}
-                                            step={0.05}
-                                            value={wmOpacity}
-                                            onChange={e => setWmOpacity(parseFloat(e.target.value))}
-                                            className="w-full accent-[#e11d48]"
-                                        />
-                                        <div className="mt-3 rounded-xl bg-slate-900/40 border border-slate-800 p-3">
-                                            <div className={`relative h-20 rounded-lg bg-black overflow-hidden ${wmPosition.includes("top") ? "items-start" : "items-end"} flex px-4 py-3`}>
-                                                <span className="text-[10px] font-bold text-white bg-black/50 border border-red-500/60 rounded px-2 py-1" style={{ opacity: Math.max(0.25, wmOpacity) }}>
-                                                    DKC 57
-                                                </span>
-                                            </div>
-                                            <p className="mt-1 text-[10px] text-slate-600">Preview (approximate)</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </section>
-
-                        {error && (
-                            <div className="flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
-                                <svg className="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                {error}
-                            </div>
-                        )}
-
-                        <div className="pb-4">
-                            <button
-                                type="submit"
-                                disabled={saving}
-                                className="w-full bg-primary hover:bg-primary/90 text-white py-4 rounded-xl font-bold transition-all glow-primary text-base disabled:opacity-50"
-                            >
-                                {saving ? "Saving…" : savedStatus ? "✓ " + savedStatus : "Save Settings"}
-                            </button>
-                        </div>
-                    </form>
-                )}
-            </main>
+  return (
+    <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-black uppercase tracking-[0.35em] text-rose-400">SETTINGS</p>
+          <h1 className="mt-3 text-3xl font-black text-white">Legacy Clip Processing Defaults</h1>
+          <p className="mt-2 text-sm text-slate-400">
+            OpenAI, Gemini, YouTube OAuth, and admin secrets are backend-only and managed from the admin area.
+          </p>
         </div>
-    );
+        <Link href="/admin" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-slate-200 hover:bg-white/10">
+          Open Admin
+        </Link>
+      </div>
+
+      {loading ? (
+        <p className="text-slate-300">Loading settings…</p>
+      ) : (
+        <form onSubmit={handleSave} className="space-y-6 rounded-3xl border border-white/10 bg-[#0d1017] p-6">
+          {error && <p className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>}
+          {message && <p className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{message}</p>}
+
+          <section>
+            <h2 className="text-lg font-black text-white">Whisper Model</h2>
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+              {WHISPER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setWhisperModel(opt.value)}
+                  className={`rounded-2xl border p-4 text-left ${whisperModel === opt.value ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/10 bg-black/20'}`}
+                >
+                  <p className="text-sm font-bold text-white">{opt.label}</p>
+                  <p className="mt-1 text-xs text-slate-400">{opt.desc}</p>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-black text-white">Caption Style</h2>
+            <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+              {captionStylesList.map((style) => (
+                <button
+                  key={style.key}
+                  type="button"
+                  onClick={() => setCaptionStyle(style.key)}
+                  className={`rounded-2xl border p-4 ${captionStyle === style.key ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/10 bg-black/20'}`}
+                >
+                  <p className="text-sm font-bold text-white">{style.name}</p>
+                  <p className="mt-1 text-xs text-slate-400">{style.animation}</p>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-black text-white">Watermark Default</h2>
+              <button
+                type="button"
+                onClick={() => setWmEnabled((value) => !value)}
+                className={`relative h-7 w-12 rounded-full ${wmEnabled ? 'bg-rose-500' : 'bg-slate-700'}`}
+              >
+                <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${wmEnabled ? 'left-6' : 'left-1'}`} />
+              </button>
+            </div>
+            {wmEnabled && (
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label>
+                  <span className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Position</span>
+                  <select
+                    value={wmPosition}
+                    onChange={(e) => setWmPosition(e.target.value as typeof wmPosition)}
+                    className="mt-3 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white"
+                  >
+                    <option value="top_left">Top Left</option>
+                    <option value="top_right">Top Right</option>
+                    <option value="bottom_left">Bottom Left</option>
+                    <option value="bottom_right">Bottom Right</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Opacity</span>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={wmOpacity}
+                    onChange={(e) => setWmOpacity(parseFloat(e.target.value))}
+                    className="mt-5 w-full accent-rose-500"
+                  />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-2xl bg-rose-600 px-5 py-3 text-sm font-black text-white hover:bg-rose-500 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'SAVE SETTINGS'}
+          </button>
+        </form>
+      )}
+    </div>
+  );
 }

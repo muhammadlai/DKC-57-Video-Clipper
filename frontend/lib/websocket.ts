@@ -17,19 +17,20 @@ export function useProjectProgress(projectId: string | null): ProgressState {
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
-        if (!projectId) {
+        const resetState = () => {
             setStage("Initializing...");
             setPercent(0);
             setMessage("");
             setLogs([]);
             setConnected(false);
+        };
+
+        if (!projectId) {
+            queueMicrotask(resetState);
             return;
         }
 
-        setStage("Initializing...");
-        setPercent(0);
-        setMessage("");
-        setLogs([]);
+        queueMicrotask(resetState);
 
         let isMounted = true;
         const host = window.location.hostname;

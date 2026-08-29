@@ -172,7 +172,7 @@ export default function CreateProjectPage() {
                 .then(data => { setGeneratedClips(data.clips || []); setIsProcessing(false); })
                 .catch(() => { setApiError("Failed to load clips."); setIsProcessing(false); });
         } else if (stage === "error" || stage === "cancelled") {
-            setIsProcessing(false);
+            queueMicrotask(() => setIsProcessing(false));
         }
     }, [stage, projectId]);
 
