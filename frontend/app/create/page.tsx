@@ -9,6 +9,7 @@ import {
     getProject,
     getSettings,
     getCaptionStyles,
+    getCommandCenterState,
     deleteClip,
     retryProject,
     updateClipTitle,
@@ -126,7 +127,7 @@ export default function CreateProjectPage() {
     const [generatedClips, setGeneratedClips] = useState<Clip[]>([]);
     const [projectId, setProjectId] = useState<string | null>(null);
     const [apiError, setApiError] = useState<string | null>(null);
-    const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+    const [aiBackendOnline, setAiBackendOnline] = useState<boolean | null>(null);
 
     // DKC 57 clip settings
     const [numClips, setNumClips] = useState(5);
@@ -150,17 +151,28 @@ export default function CreateProjectPage() {
     const [dragOver, setDragOver] = useState(false);
 
     useEffect(() => {
-        Promise.all([getSettings(), getCaptionStyles()])
-            .then(([s, styles]) => {
-                setHasApiKey(s.has_api_key);
-                setCaptionStyles(styles.filter(x => x.key !== "none"));
-                setWmOn(Boolean(s.watermark_enabled));
-                setWmPosition(s.watermark_position || "bottom_right");
-                setWmOpacity(typeof s.watermark_opacity === "number" ? s.watermark_opacity : 0.6);
-                const globalStyle = s.caption_style;
-                if (globalStyle && globalStyle !== "none") {
-                    setCaptionsOn(true);
-                    setCaptionStyle(globalStyle);
+        Promise.allSettled([getSettings(), getCaptionStyles(), getCommandCenterState()])
+            .then((results) => {
+                const [settingsResult, stylesResult, stateResult] = results;
+
+                if (settingsResult.status === "fulfilled") {
+                    const s = settingsResult.value;
+                    setWmOn(Boolean(s.watermark_enabled));
+                    setWmPosition(s.watermark_position || "bottom_right");
+                    setWmOpacity(typeof s.watermark_opacity === "number" ? s.watermark_opacity : 0.6);
+                    const globalStyle = s.caption_style;
+                    if (globalStyle && globalStyle !== "none") {
+                        setCaptionsOn(true);
+                        setCaptionStyle(globalStyle);
+                    }
+                }
+
+                if (stylesResult.status === "fulfilled") {
+                    setCaptionStyles(stylesResult.value.filter(x => x.key !== "none"));
+                }
+
+                if (stateResult.status === "fulfilled") {
+                    setAiBackendOnline(Boolean(stateResult.value.ai_engine?.online));
                 }
             })
             .catch(console.error);
@@ -230,7 +242,7 @@ export default function CreateProjectPage() {
 
     const clampedPercent = Math.min(100, Math.max(0, percent));
     const isLive = isProcessing && projectId;
-    const needsKey = hasApiKey === false && aiDetection && sourceMode !== "file";
+    const showAiBackendWarning = aiBackendOnline === false && aiDetection;
 
     return (
         <div className="mx-auto w-full max-w-5xl px-6 py-12">
@@ -251,21 +263,22 @@ export default function CreateProjectPage() {
                 </div>
             )}
 
-            {/* No API key warning (only matters for AI detection + YouTube) */}
-            {needsKey && (
+            {/* Backend AI warning uses real command-center status only */}
+            {showAiBackendWarning && (
                 <div className="mb-8 flex items-center justify-between gap-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
                     <div className="flex items-center gap-3 text-amber-400">
                         <svg className="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                         <div>
-                            <p className="font-bold text-sm">No LLM configured</p>
+                            <p className="font-bold text-sm">Backend AI unavailable</p>
                             <p className="text-xs opacity-80">
-                                AI moment detection needs an API key — or turn it off below for
-                                evenly spaced cuts (fully local, no key required).
+                                AI moment detection is enabled, but no verified backend OpenAI or Gemini provider is online.
+                                Turn AI moment detection off below for evenly spaced cuts, or have an admin configure the
+                                server-side AI providers.
                             </p>
                         </div>
                     </div>
-                    <Link href="/settings" className="flex-shrink-0 rounded-xl bg-amber-500/20 px-4 py-2 text-xs font-bold text-amber-400 hover:bg-amber-500/30 transition-colors">
-                        Configure →
+                    <Link href="/admin" className="flex-shrink-0 rounded-xl bg-amber-500/20 px-4 py-2 text-xs font-bold text-amber-400 hover:bg-amber-500/30 transition-colors">
+                        Admin →
                     </Link>
                 </div>
             )}
@@ -419,7 +432,7 @@ export default function CreateProjectPage() {
                             <Toggle checked={faceTracking} onChange={setFaceTracking} label="Face Tracking" desc="Follow speakers (MediaPipe, local)" />
                             <Toggle checked={aiDetection} onChange={setAiDetection}
                                 label="AI Moment Detection"
-                                desc={aiDetection ? "LLM picks the strongest moments" : "Evenly spaced cuts — no API key needed"} />
+                                desc={aiDetection ? "Backend AI picks the strongest moments when a verified provider is online" : "Evenly spaced cuts — no backend AI required"} />
                             <Toggle checked={wmOn} onChange={setWmOn} label="DKC 57 Watermark" desc="Optional brand overlay (off = no watermark)" />
                         </div>
 

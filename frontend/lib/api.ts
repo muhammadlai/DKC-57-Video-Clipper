@@ -77,27 +77,21 @@ export async function getSettings(): Promise<Settings> {
     const res = await apiFetch('/api/settings');
     if (!res.ok) {
       return {
-        llm_provider: 'openai',
-        llm_model: 'gpt-4o',
         whisper_model: 'base',
         caption_style: 'viral_word',
-        has_api_key: false,
       };
     }
     return res.json();
   } catch {
     return {
-      llm_provider: 'openai',
-      llm_model: 'gpt-4o',
       whisper_model: 'base',
       caption_style: 'viral_word',
-      has_api_key: false,
     };
   }
 }
 
 export async function saveSettings(
-  settings: Partial<Settings> & { llm_api_key?: string }
+  settings: Partial<Settings>
 ): Promise<void> {
   const res = await apiFetch('/api/settings', {
     method: 'POST',

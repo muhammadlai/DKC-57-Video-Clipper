@@ -10,15 +10,15 @@ export function SettingsWarning() {
                 <div className="flex items-center gap-3 text-yellow-500">
                     <AlertTriangle className="h-5 w-5 flex-shrink-0" />
                     <div>
-                        <p className="font-semibold text-sm">No LLM configured</p>
-                        <p className="text-xs text-yellow-500/80">AI clip detection requires an API key.</p>
+                        <p className="font-semibold text-sm">Backend AI unavailable</p>
+                        <p className="text-xs text-yellow-500/80">AI moment detection needs a verified backend OpenAI or Gemini provider.</p>
                     </div>
                 </div>
                 <Link
-                    href="/settings"
+                    href="/admin"
                     className="inline-flex h-8 shrink-0 items-center justify-center rounded-sm bg-yellow-500/20 px-4 text-xs font-semibold text-yellow-500 hover:bg-yellow-500/30 transition-colors"
                 >
-                    Go to Settings
+                    Open Admin
                     <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                 </Link>
             </div>

@@ -546,7 +546,7 @@ async def _call_gemini(prompt: str, api_key: str, model: str) -> str:
             import os
             effective_api_key = os.environ.get("GEMINI_API_KEY", "")
         if not effective_api_key:
-            raise RuntimeError("Gemini API key missing. Set it in Settings or GEMINI_API_KEY env var.")
+            raise RuntimeError("Gemini API key missing. Set GEMINI_API_KEY on the backend environment.")
 
         # Create client with explicit timeout via http_options
         client = genai.Client(

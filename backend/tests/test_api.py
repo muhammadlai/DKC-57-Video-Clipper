@@ -223,25 +223,36 @@ def test_project_404(client):
     assert client.delete("/api/projects/nope").status_code == 404
 
 
-def test_settings_roundtrip_and_key_never_returned(client):
+def test_settings_roundtrip_only_returns_safe_defaults(client):
     r = client.post(
         "/api/settings",
         json={
-            "llm_provider": "ollama",
-            "llm_api_key": "sk-test-123",
             "watermark_position": "top_right",
             "watermark_opacity": 0.5,
+            "caption_style": "classic_white",
         },
     )
     assert r.status_code == 200
 
     r = client.get("/api/settings")
     data = r.json()
-    assert data.get("llm_provider") == "ollama"
     assert data.get("watermark_position") == "top_right"
-    # the raw key must never be returned
+    assert data.get("watermark_opacity") == 0.5
+    assert data.get("caption_style") == "classic_white"
+    assert "llm_provider" not in data
+    assert "has_api_key" not in data
     assert "sk-test-123" not in json.dumps(data)
-    assert data.get("has_api_key") is True
+
+
+def test_settings_rejects_legacy_llm_fields(client):
+    r = client.post(
+        "/api/settings",
+        json={
+            "llm_provider": "ollama",
+            "llm_api_key": "sk-test-123",
+        },
+    )
+    assert r.status_code == 422
 
 
 def test_auth_middleware_when_key_set(client, monkeypatch):

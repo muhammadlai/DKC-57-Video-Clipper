@@ -2,7 +2,7 @@
 settings.py — User settings management for OpenClip.
 
 Stores key-value configuration in the SQLite ``settings`` table.
-API keys are encrypted at rest using Fernet symmetric encryption
+Sensitive tokens are encrypted at rest using Fernet symmetric encryption
 with a key derived deterministically from the machine's UUID.
 
 How it works:
@@ -73,7 +73,7 @@ async def get_setting(key: str) -> Optional[str]:
     """
     Read a single setting by key.
 
-    Encrypted keys (e.g. ``llm_api_key``) are decrypted automatically.
+    Encrypted keys (for example OAuth tokens) are decrypted automatically.
 
     Args:
         key: The setting key to look up.
@@ -105,7 +105,7 @@ async def set_setting(key: str, value: str) -> None:
     """
     Create or update a setting.
 
-    Encrypted keys (e.g. ``llm_api_key``) are stored encrypted.
+    Encrypted keys (for example OAuth tokens) are stored encrypted.
 
     Args:
         key:   The setting key.
@@ -135,7 +135,8 @@ async def get_all_settings() -> Dict[str, Any]:
     never leaks raw secrets.
 
     Returns:
-        Dict like ``{"llm_provider": "openai", "has_api_key": True, ...}``
+        Flat key/value settings safe for backend use; encrypted entries
+        are replaced with boolean presence flags.
     """
     result: Dict[str, Any] = {}
     conn = await database._get_connection()

@@ -1,26 +1,24 @@
 """Test script for Gemini API"""
+import os
 import time
 import asyncio
 import sys
 sys.path.insert(0, '.')
-
-import settings as settings_mod
 
 async def test():
     print("=" * 50)
     print("GEMINI API TEST")
     print("=" * 50)
 
-    # Get decrypted API key
-    api_key = await settings_mod.get_setting('llm_api_key')
-    model = await settings_mod.get_setting('llm_model')
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
 
     print(f"Model: {model}")
     print(f"API Key (first 15 chars): {api_key[:15] if api_key else 'None'}...")
     print(f"API Key length: {len(api_key) if api_key else 0}")
 
-    if not api_key or api_key == '<decryption failed>':
-        print("ERROR: API key decryption failed!")
+    if not api_key:
+        print("ERROR: Set GEMINI_API_KEY in the backend environment first.")
         return
 
     from google import genai

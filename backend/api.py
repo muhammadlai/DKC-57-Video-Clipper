@@ -55,7 +55,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles  # type: ignore
 from fastapi.middleware.cors import CORSMiddleware  # type: ignore
 from starlette.middleware.sessions import SessionMiddleware  # type: ignore
-from pydantic import BaseModel, Field  # type: ignore
+from pydantic import BaseModel, Field, ConfigDict  # type: ignore
 from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
@@ -368,6 +368,25 @@ def _mask_secret(value: str) -> str:
     return "••••••••••••" if value else "Not configured"
 
 
+def _backend_ai_chain() -> list[dict[str, str]]:
+    chain: list[dict[str, str]] = []
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if openai_key:
+        chain.append({
+            "provider": "openai",
+            "api_key": openai_key,
+            "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
+        })
+    if gemini_key:
+        chain.append({
+            "provider": "gemini",
+            "api_key": gemini_key,
+            "model": os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash",
+        })
+    return chain
+
+
 def _normalize_settings(raw: Optional[dict]) -> dict:
     """Coerce a raw settings payload into the canonical dict (DKC 57)."""
     raw = dict(raw or {})
@@ -617,47 +636,67 @@ async def _run_pipeline(project_id: str) -> None:
             await database.update_project_status(project_id, "analyzing")
             await _broadcast(project_id, "analyzing", 55, "AI analyzing video…")
 
-            provider = await settings_mod.get_setting("llm_provider") or "openai"
-            api_key = await settings_mod.get_setting("llm_api_key") or ""
-            model = await settings_mod.get_setting("llm_model") or ""
-
-            try:
-                def analyze_progress(stage: str, percent: float, msg: str):
-                    asyncio.run_coroutine_threadsafe(
-                        _broadcast(project_id, stage, percent, msg),
-                        loop,
-                    )
-
-                suggestions: list[dict] = await llm.get_clip_suggestions(
-                    transcript_segments, provider, api_key, model, video_duration,
-                    progress_callback=analyze_progress,
-                    num_clips=cfg["num_clips"],
-                    min_duration=cfg["min_duration"],
-                    max_duration=cfg["max_duration"],
+            ai_chain = _backend_ai_chain()
+            if not ai_chain:
+                err_msg = (
+                    "AI backend is not configured. Set OPENAI_API_KEY or GEMINI_API_KEY on the server, "
+                    "or disable AI moment detection to use evenly spaced cuts."
                 )
-
-            except Exception as e:
-                msg = str(e).lower()
-                if "401" in msg or "403" in msg:
-                    err_msg = "Invalid API key. Check your settings."
-                elif "429" in msg:
-                    err_msg = "Rate limit hit. Wait a moment and try again."
-                else:
-                    err_msg = f"AI Error: {e}"
                 await database.update_project_status(project_id, "error")
                 await database.update_project_error(project_id, err_msg)
                 await _broadcast(project_id, "error", 0, err_msg)
                 return
 
-            if not suggestions:
-                await database.update_project_status(project_id, "error")
-                await database.update_project_error(
-                    project_id,
-                    "AI could not find clip moments. Try a different video, "
-                    "a different AI provider, or turn off AI moment detection "
-                    "to use evenly spaced cuts.",
+            def analyze_progress(stage: str, percent: float, msg: str):
+                asyncio.run_coroutine_threadsafe(
+                    _broadcast(project_id, stage, percent, msg),
+                    loop,
                 )
-                await _broadcast(project_id, "error", 0, "AI could not find clip moments.")
+
+            suggestions: list[dict] = []
+            last_exc: Optional[Exception] = None
+            for idx, ai_runtime in enumerate(ai_chain):
+                try:
+                    if idx > 0:
+                        await _broadcast(
+                            project_id,
+                            "analyzing",
+                            60,
+                            f"Primary AI unavailable — retrying with {ai_runtime['provider'].title()}…",
+                        )
+                    suggestions = await llm.get_clip_suggestions(
+                        transcript_segments,
+                        ai_runtime["provider"],
+                        ai_runtime["api_key"],
+                        ai_runtime["model"],
+                        video_duration,
+                        progress_callback=analyze_progress,
+                        num_clips=cfg["num_clips"],
+                        min_duration=cfg["min_duration"],
+                        max_duration=cfg["max_duration"],
+                    )
+                    if suggestions:
+                        break
+                except Exception as exc:
+                    last_exc = exc
+                    continue
+
+            if not suggestions:
+                if last_exc is not None:
+                    msg = str(last_exc).lower()
+                    if "401" in msg or "403" in msg:
+                        err_msg = "Backend AI credentials were rejected by the provider."
+                    elif "429" in msg:
+                        err_msg = "Backend AI rate limit hit. Wait a moment and try again."
+                    else:
+                        err_msg = f"AI Error: {last_exc}"
+                else:
+                    err_msg = (
+                        "AI could not find clip moments. Turn off AI moment detection to use evenly spaced cuts."
+                    )
+                await database.update_project_status(project_id, "error")
+                await database.update_project_error(project_id, err_msg)
+                await _broadcast(project_id, "error", 0, err_msg)
                 return
 
             _raise_if_cancelled(project_id)
@@ -1128,10 +1167,9 @@ async def list_caption_styles():
 # ---------------------------------------------------------------------------
 
 class UpdateSettingsRequest(BaseModel):
-    """Payload for updating settings."""
-    llm_provider: Optional[str] = None
-    llm_api_key: Optional[str] = None
-    llm_model: Optional[str] = None
+    """Payload for updating legacy local processing defaults."""
+    model_config = ConfigDict(extra="forbid")
+
     whisper_model: Optional[str] = None
     caption_style: Optional[str] = None
     # DKC 57 watermark defaults
@@ -1142,11 +1180,15 @@ class UpdateSettingsRequest(BaseModel):
 
 @app.get("/api/settings")
 async def get_settings():
-    """
-    Return all settings.  API keys are **never** returned — only a
-    boolean ``has_api_key`` flag.
-    """
-    return await settings_mod.get_all_settings()
+    """Return only safe legacy clip-processing defaults for the frontend."""
+    all_settings = await settings_mod.get_all_settings()
+    return {
+        "whisper_model": all_settings.get("whisper_model", "base"),
+        "caption_style": all_settings.get("caption_style", "viral_word"),
+        "watermark_enabled": str(all_settings.get("watermark_enabled", "0")).lower() in {"1", "true"},
+        "watermark_position": all_settings.get("watermark_position", "bottom_right"),
+        "watermark_opacity": float(all_settings.get("watermark_opacity", 0.6) or 0.6),
+    }
 
 
 @app.post("/api/settings")
@@ -1155,9 +1197,6 @@ async def update_settings(body: UpdateSettingsRequest):
     Create or update one or more settings.
     """
     pairs = {
-        "llm_provider": body.llm_provider,
-        "llm_api_key": body.llm_api_key,
-        "llm_model": body.llm_model,
         "whisper_model": body.whisper_model,
         "caption_style": body.caption_style,
         "watermark_enabled": (

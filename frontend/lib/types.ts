@@ -51,10 +51,7 @@ export interface ProgressUpdate {
 }
 
 export interface Settings {
-  llm_provider: 'openai' | 'anthropic' | 'gemini' | 'ollama';
-  llm_model: string;
   whisper_model: 'base' | 'small' | 'medium';
-  has_api_key: boolean;
   caption_style: string;
   watermark_enabled?: boolean;
   watermark_position?: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';

@@ -1,14 +1,13 @@
 import os
 import asyncio
 from google import genai
-import settings as settings_mod
 
 async def test_models():
-    api_key_str = await settings_mod.get_setting("llm_api_key")
+    api_key_str = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key_str:
-        print("No API key found in DB.")
+        print("Set GEMINI_API_KEY in the backend environment to run this test.")
         return
-        
+
     client = genai.Client(api_key=api_key_str)
     
     print("Testing gemini-2.5-flash...")

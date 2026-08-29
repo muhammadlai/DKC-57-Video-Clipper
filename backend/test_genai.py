@@ -1,18 +1,18 @@
 import asyncio
+import os
 import database
-import settings
 import llm
 
 async def main():
     await database.init_db()
-    
-    api_key = await settings.get_setting("llm_api_key")
-    model = await settings.get_setting("llm_model")
-    
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
+
     if not api_key:
-        print("No API key found in the database. Cannot test.")
+        print("Set GEMINI_API_KEY in the backend environment. Cannot test.")
         return
-        
+
     print(f"Testing Gemini model: '{model}'")
     
     dummy_transcript = [
