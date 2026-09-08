@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Dark (default) — premium agent console */
+  --c-canvas: 7 9 16;
+  --c-surface: 13 16 26;
+  --c-surface2: 21 25 38;
+  --c-line: 255 255 255;
+  --c-ink: 237 240 248;
+  --c-muted: 148 156 176;
+  --c-accent: 129 140 248;
+  --c-accent-strong: 99 102 241;
+  --c-accent-soft: 129 140 248;
+  --c-ok: 52 211 153;
+  --c-warn: 251 191 36;
+  --c-danger: 248 113 113;
+}
+
+.light {
+  --c-canvas: 244 245 249;
+  --c-surface: 255 255 255;
+  --c-surface2: 241 243 248;
+  --c-line: 15 23 42;
+  --c-ink: 15 23 42;
+  --c-muted: 100 116 139;
+  --c-accent: 99 102 241;
+  --c-accent-strong: 79 70 229;
+  --c-accent-soft: 99 102 241;
+  --c-ok: 5 150 105;
+  --c-warn: 217 119 6;
+  --c-danger: 220 38 38;
+}
+
+.light .card-shadow {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 8px 32px -20px rgb(15 23 42 / 0.25);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-canvas text-ink antialiased;
+}
+
+/* Line/border alpha helper — line uses low alpha in dark, slightly higher in light */
+.border-line {
+  border-color: rgb(var(--c-line) / 0.09);
+}
+.light .border-line {
+  border-color: rgb(var(--c-line) / 0.1);
+}
+.hover\:border-line:hover {
+  border-color: rgb(var(--c-line) / 0.18);
+}
+
+.divide-line > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(var(--c-line) / 0.08);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-line) / 0.15);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--c-line) / 0.3);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Markdown-ish emphasis inside assistant messages */
+.chat-content strong {
+  @apply font-semibold text-accent;
+}
+.chat-content code {
+  @apply rounded bg-surface2 px-1.5 py-0.5 font-mono text-[0.85em];
+}
+
+/* Logo gradient text */
+.brand-gradient {
+  background: linear-gradient(120deg, rgb(var(--c-accent)) 0%, rgb(var(--c-ok)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
