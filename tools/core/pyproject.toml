@@ -1,0 +1,13 @@
+[project]
+name = "aitzaz-tools-core"
+version = "0.1.0"
+description = "Tool abstraction and Phase 1 demo tools for Aitzaz AI"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["aitzaz_tools*"]

@@ -1,59 +1,77 @@
-# DKC 57 Video Clipper — self-hosted stack (original DKC 57 file)
-#
-#   docker compose up -d --build
-#
-#   Frontend:  http://localhost:5000
-#   Backend:   http://localhost:8000  (API docs at /docs)
-#
-# All persistent data (SQLite DB + video/clip storage) is kept in ./data.
-# Copy .env.example to .env and adjust before first run if you want to
-# set an API key or raise the upload limit.
+# =============================================================================
+# Aitzaz AI — full local development stack
+#   docker compose up --build
+#   Web:  http://localhost:3000   (register or use demo@aitzaz.ai / demo-user-2026)
+#   API:  http://localhost:8000   (docs at /docs, health at /api/health)
+# =============================================================================
 
 services:
-  backend:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aitzaz
+      POSTGRES_PASSWORD: aitzaz
+      POSTGRES_DB: aitzaz
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aitzaz -d aitzaz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
     build:
       context: .
-      dockerfile: Dockerfile.backend
-    image: dkc57/backend:latest
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AITZAZ_ENVIRONMENT: development
+      AITZAZ_SECRET_KEY: ${AITZAZ_SECRET_KEY:-change-me-in-production-please-generate-a-real-key}
+      AITZAZ_DATABASE_URL: postgresql+psycopg2://aitzaz:aitzaz@db:5432/aitzaz
+      AITZAZ_REDIS_URL: redis://redis:6379/0
+      AITZAZ_LLM_PROVIDER: ${AITZAZ_LLM_PROVIDER:-mock}
+      AITZAZ_OPENAI_API_KEY: ${AITZAZ_OPENAI_API_KEY:-}
+      AITZAZ_ANTHROPIC_API_KEY: ${AITZAZ_ANTHROPIC_API_KEY:-}
+      AITZAZ_CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+      AITZAZ_SEED_DEMO_USER: "true"
+      AITZAZ_DEMO_USER_EMAIL: demo@aitzaz.ai
+      AITZAZ_DEMO_USER_PASSWORD: demo-user-2026
     ports:
       - "8000:8000"
-    environment:
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5000}
-      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10240}
-      D57_API_KEY: ${D57_API_KEY:-}
-      # Ollama (if you enable the optional service below)
-      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
-    volumes:
-      - ./data:/data
-    restart: unless-stopped
 
-  frontend:
+  web:
     build:
       context: .
-      dockerfile: Dockerfile.frontend
+      dockerfile: apps/web/Dockerfile
       args:
-        # Keep http://localhost:8000 for single-machine self-hosting —
-        # the browser (not the container) talks to the backend.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-        NEXT_PUBLIC_API_KEY: ${D57_API_KEY:-}
-    image: dkc57/frontend:latest
-    ports:
-      - "5000:5000"
+        BACKEND_ORIGIN: http://api:8000
+    restart: unless-stopped
     depends_on:
-      - backend
-    restart: unless-stopped
-
-  # Optional: local AI (Ollama) — enables keyless, fully local moment
-  # detection from the Settings page (provider = Ollama).
-  # Start with:  docker compose --profile ollama up -d ollama
-  ollama:
-    image: ollama/ollama:latest
-    profiles: ["ollama"]
-    volumes:
-      - ollama-data:/root/.ollama
+      - api
+    environment:
+      BACKEND_ORIGIN: http://api:8000
     ports:
-      - "11434:11434"
-    restart: unless-stopped
+      - "3000:3000"
 
 volumes:
-  ollama-data:
+  pgdata:

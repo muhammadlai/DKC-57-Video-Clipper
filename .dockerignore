@@ -1,18 +1,32 @@
+# --- Git/CI noise ---
 .git
+.github
 .gitignore
-.venv
-__pycache__
-*.pyc
-node_modules
-frontend/node_modules
-frontend/.next
-tmp
-data
-*.db
-*.sqlite
-backend/.env
-frontend/.env*
 .env
 .env.*
-nohup.out
-*.log
+!.env.example
+*.md
+!apps/web/README.md
+
+# --- Build artifacts / caches ---
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.egg-info
+**/.venv
+**/node_modules
+**/.next
+**/out
+**/dist
+**/build
+
+# --- Local data ---
+**/*.sqlite3
+**/*.db
+data/
+.pgdata/
+.aitzaz-services/
+
+# --- Editors ---
+.idea
+.vscode
